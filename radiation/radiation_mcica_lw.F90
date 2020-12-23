@@ -193,8 +193,9 @@ contains
         ! used in cloudy-sky case
         ref_clear = 0.0_jprb
       end if
-    end do  
-    do jcol = istartcol,iendcol
+! cos: todo once all fields are promoted to 3D
+!    end do  
+!    do jcol = istartcol,iendcol
 
       ! Sum over g-points to compute broadband fluxes
       flux%lw_up_clear(jcol,:) = sum(flux_up_clear,1)
