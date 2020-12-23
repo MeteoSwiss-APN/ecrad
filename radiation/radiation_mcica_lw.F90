@@ -94,7 +94,9 @@ contains
 
     ! Diffuse reflectance and transmittance for each layer in clear
     ! and all skies
-    real(jprb), dimension(config%n_g_lw, nlev) :: ref_clear, trans_clear, reflectance, transmittance
+    ! cos: original (g, lev). Future demote to (col, lev)
+    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: ref_clear
+    real(jprb), dimension(config%n_g_lw, nlev) :: trans_clear, reflectance, transmittance
 
     ! Emission by a layer into the upwelling or downwelling diffuse
     ! streams, in clear and all skies
@@ -112,7 +114,8 @@ contains
     real(jprb) :: scat_od, scat_od_total(config%n_g_lw)
 
     ! Two-stream coefficients
-    real(jprb), dimension(config%n_g_lw) :: gamma1, gamma2
+    ! cos: original (g). Future demote to (col)
+    real(jprb), dimension(config%n_g_lw, istartcol:iendcol) :: gamma1, gamma2
 
     ! Optical depth scaling from the cloud generator, zero indicating
     ! clear skies
@@ -159,16 +162,16 @@ contains
           ssa_total = ssa(:,jlev,jcol)
           g_total   = g(:,jlev,jcol)
           call calc_two_stream_gammas_lw(ng, ssa_total, g_total, &
-               &  gamma1, gamma2)
+               &  gamma1(:,jcol), gamma2(:,jcol))
           call calc_reflectance_transmittance_lw(ng, &
-               &  od(:,jlev,jcol), gamma1, gamma2, &
+               &  od(:,jlev,jcol), gamma1(:,jcol), gamma2(:,jcol), &
                &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
-               &  ref_clear(:,jlev), trans_clear(:,jlev), &
+               &  ref_clear(:,jlev, jcol), trans_clear(:,jlev), &
                &  source_up_clear(:,jlev), source_dn_clear(:,jlev))
         end do
         ! Then use adding method to compute fluxes
         call adding_ica_lw(ng, nlev, &
-             &  ref_clear, trans_clear, source_up_clear, source_dn_clear, &
+             &  ref_clear(:,:,jcol), trans_clear(:,:), source_up_clear, source_dn_clear, &
              &  emission(:,jcol), albedo(:,jcol), &
              &  flux_up_clear, flux_dn_clear)
         
@@ -182,7 +185,7 @@ contains
         end do
         ! Simpler down-then-up method to compute fluxes
         call calc_fluxes_no_scattering_lw(ng, nlev, &
-             &  trans_clear, source_up_clear, source_dn_clear, &
+             &  trans_clear(:,:), source_up_clear, source_dn_clear, &
              &  emission(:,jcol), albedo(:,jcol), &
              &  flux_up_clear, flux_dn_clear)
         
@@ -190,6 +193,8 @@ contains
         ! used in cloudy-sky case
         ref_clear = 0.0_jprb
       end if
+    end do  
+    do jcol = istartcol,iendcol
 
       ! Sum over g-points to compute broadband fluxes
       flux%lw_up_clear(jcol,:) = sum(flux_up_clear,1)
@@ -269,9 +274,9 @@ contains
               ! Compute cloudy-sky reflectance, transmittance etc at
               ! each model level
               call calc_two_stream_gammas_lw(ng, ssa_total, g_total, &
-                   &  gamma1, gamma2)
+                   &  gamma1(:,jcol), gamma2(:,jcol))
               call calc_reflectance_transmittance_lw(ng, &
-                   &  od_total, gamma1, gamma2, &
+                   &  od_total, gamma1(:,jcol), gamma2(:,jcol), &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
                    &  reflectance(:,jlev), transmittance(:,jlev), source_up(:,jlev), source_dn(:,jlev))
             else
@@ -284,7 +289,7 @@ contains
 
           else
             ! Clear-sky layer: copy over clear-sky values
-            reflectance(:,jlev) = ref_clear(:,jlev)
+            reflectance(:,jlev) = ref_clear(:,jlev, jcol)
             transmittance(:,jlev) = trans_clear(:,jlev)
             source_up(:,jlev) = source_up_clear(:,jlev)
             source_dn(:,jlev) = source_dn_clear(:,jlev)
@@ -335,7 +340,7 @@ contains
                &                       flux%lw_derivatives)
           if (total_cloud_cover < 1.0_jprb - config%cloud_fraction_threshold) then
             ! Modify the existing derivative with the contribution from the clear sky
-            call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear, flux_up_clear(:,nlev+1), &
+            call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear(:,:), flux_up_clear(:,nlev+1), &
                  &                         1.0_jprb-total_cloud_cover, flux%lw_derivatives)
           end if
         end if
@@ -347,7 +352,7 @@ contains
         flux%lw_dn(jcol,:) = flux%lw_dn_clear(jcol,:)
         flux%lw_dn_surf_g(:,jcol) = flux%lw_dn_surf_clear_g(:,jcol)
         if (config%do_lw_derivatives) then
-          call calc_lw_derivatives_ica(ng, nlev, jcol, trans_clear, flux_up_clear(:,nlev+1), &
+          call calc_lw_derivatives_ica(ng, nlev, jcol, trans_clear(:,:), flux_up_clear(:,nlev+1), &
                &                       flux%lw_derivatives)
  
         end if
