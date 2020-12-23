@@ -95,8 +95,8 @@ contains
     ! Diffuse reflectance and transmittance for each layer in clear
     ! and all skies
     ! cos: original (g, lev). Future demote to (col, lev)
-    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: ref_clear
-    real(jprb), dimension(config%n_g_lw, nlev) :: trans_clear, reflectance, transmittance
+    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: ref_clear, reflectance
+    real(jprb), dimension(config%n_g_lw, nlev) :: trans_clear, transmittance
 
     ! Emission by a layer into the upwelling or downwelling diffuse
     ! streams, in clear and all skies
@@ -278,7 +278,7 @@ contains
               call calc_reflectance_transmittance_lw(ng, &
                    &  od_total, gamma1(:,jcol), gamma2(:,jcol), &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
-                   &  reflectance(:,jlev), transmittance(:,jlev), source_up(:,jlev), source_dn(:,jlev))
+                   &  reflectance(:,jlev,jcol), transmittance(:,jlev), source_up(:,jlev), source_dn(:,jlev))
             else
               ! No-scattering case: use simpler functions for
               ! transmission and emission
@@ -289,7 +289,7 @@ contains
 
           else
             ! Clear-sky layer: copy over clear-sky values
-            reflectance(:,jlev) = ref_clear(:,jlev, jcol)
+            reflectance(:,jlev,jcol) = ref_clear(:,jlev, jcol)
             transmittance(:,jlev) = trans_clear(:,jlev)
             source_up(:,jlev) = source_up_clear(:,jlev)
             source_dn(:,jlev) = source_dn_clear(:,jlev)
@@ -299,7 +299,7 @@ contains
         if (config%do_lw_aerosol_scattering) then
           ! Use adding method to compute fluxes for an overcast sky,
           ! allowing for scattering in all layers
-          call adding_ica_lw(ng, nlev, reflectance, transmittance, source_up, source_dn, &
+          call adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance, source_up, source_dn, &
                &  emission(:,jcol), albedo(:,jcol), &
                &  flux_up, flux_dn)
         else if (config%do_lw_cloud_scattering) then
@@ -308,7 +308,7 @@ contains
 !          call adding_ica_lw(ng, nlev, reflectance, transmittance, source_up, source_dn, &
 !               &  emission(:,jcol), albedo(:,jcol), &
 !               &  flux_up, flux_dn)
-          call fast_adding_ica_lw(ng, nlev, reflectance, transmittance, source_up, source_dn, &
+          call fast_adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance, source_up, source_dn, &
                &  emission(:,jcol), albedo(:,jcol), &
                &  is_clear_sky_layer, i_cloud_top, flux_dn_clear, &
                &  flux_up, flux_dn)
