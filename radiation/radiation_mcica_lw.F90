@@ -169,7 +169,7 @@ contains
           call calc_reflectance_transmittance_lw(ng, &
                &  od(:,jlev,jcol), gamma1(:,jcol), gamma2(:,jcol), &
                &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
-               &  ref_clear(:,jlev, jcol), trans_clear(:,jlev,jcol), &
+               &  ref_clear(:,jlev,jcol), trans_clear(:,jlev,jcol), &
                &  source_up_clear(:,jlev,jcol), source_dn_clear(:,jlev,jcol))
         end do
         ! Then use adding method to compute fluxes
@@ -197,8 +197,8 @@ contains
         ref_clear = 0.0_jprb
       end if
 ! cos: todo once all fields are promoted to 3D
-!    end do  
-!    do jcol = istartcol,iendcol
+    end do  
+    do jcol = istartcol,iendcol
 
       ! Sum over g-points to compute broadband fluxes
       flux%lw_up_clear(jcol,:) = sum(flux_up_clear(:,:,jcol),1)
