@@ -96,12 +96,13 @@ contains
     ! and all skies
     ! cos: original (g, lev). Future demote to (col, lev)
     real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: ref_clear, reflectance, &
-                                             trans_clear, transmittance
+                                              trans_clear, transmittance
 
     ! Emission by a layer into the upwelling or downwelling diffuse
     ! streams, in clear and all skies
-    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: source_up_clear, source_up
-    real(jprb), dimension(config%n_g_lw, nlev) :: source_dn_clear, source_dn
+    ! cos: original (g, lev). Future demote to (col, lev)
+    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: source_up_clear, source_up, &
+                                              source_dn_clear, source_dn
 
     ! Fluxes per g point
     real(jprb), dimension(config%n_g_lw, nlev+1) :: flux_up, flux_dn
@@ -168,11 +169,11 @@ contains
                &  od(:,jlev,jcol), gamma1(:,jcol), gamma2(:,jcol), &
                &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
                &  ref_clear(:,jlev, jcol), trans_clear(:,jlev,jcol), &
-               &  source_up_clear(:,jlev,jcol), source_dn_clear(:,jlev))
+               &  source_up_clear(:,jlev,jcol), source_dn_clear(:,jlev,jcol))
         end do
         ! Then use adding method to compute fluxes
         call adding_ica_lw(ng, nlev, &
-             &  ref_clear(:,:,jcol), trans_clear(:,:,jcol), source_up_clear(:,:,jcol), source_dn_clear, &
+             &  ref_clear(:,:,jcol), trans_clear(:,:,jcol), source_up_clear(:,:,jcol), source_dn_clear(:,:,jcol), &
              &  emission(:,jcol), albedo(:,jcol), &
              &  flux_up_clear, flux_dn_clear)
         
@@ -182,11 +183,11 @@ contains
         do jlev = 1,nlev
           call calc_no_scattering_transmittance_lw(ng, od(:,jlev,jcol), &
                &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
-               &  trans_clear(:,jlev,jcol), source_up_clear(:,jlev,jcol), source_dn_clear(:,jlev))
+               &  trans_clear(:,jlev,jcol), source_up_clear(:,jlev,jcol), source_dn_clear(:,jlev,jcol))
         end do
         ! Simpler down-then-up method to compute fluxes
         call calc_fluxes_no_scattering_lw(ng, nlev, &
-             &  trans_clear(:,:,jcol), source_up_clear(:,:,jcol), source_dn_clear, &
+             &  trans_clear(:,:,jcol), source_up_clear(:,:,jcol), source_dn_clear(:,:,jcol), &
              &  emission(:,jcol), albedo(:,jcol), &
              &  flux_up_clear, flux_dn_clear)
         
@@ -280,13 +281,14 @@ contains
               call calc_reflectance_transmittance_lw(ng, &
                    &  od_total, gamma1(:,jcol), gamma2(:,jcol), &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
-                   &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev))
+                   &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), &
+                   & source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
             else
               ! No-scattering case: use simpler functions for
               ! transmission and emission
               call calc_no_scattering_transmittance_lw(ng, od_total, &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
-                   &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev))
+                   &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
             end if
 
           else
@@ -294,30 +296,29 @@ contains
             reflectance(:,jlev,jcol) = ref_clear(:,jlev, jcol)
             transmittance(:,jlev,jcol) = trans_clear(:,jlev,jcol)
             source_up(:,jlev,jcol) = source_up_clear(:,jlev,jcol)
-            source_dn(:,jlev) = source_dn_clear(:,jlev)
+            source_dn(:,jlev,jcol) = source_dn_clear(:,jlev,jcol)
           end if
         end do
         
         if (config%do_lw_aerosol_scattering) then
           ! Use adding method to compute fluxes for an overcast sky,
           ! allowing for scattering in all layers
-          call adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), source_dn, &
-               &  emission(:,jcol), albedo(:,jcol), &
-               &  flux_up, flux_dn)
+          call adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
+               & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), flux_up, flux_dn)
+
         else if (config%do_lw_cloud_scattering) then
           ! Use adding method to compute fluxes but optimize for the
           ! presence of clear-sky layers
 !          call adding_ica_lw(ng, nlev, reflectance, transmittance, source_up, source_dn, &
 !               &  emission(:,jcol), albedo(:,jcol), &
 !               &  flux_up, flux_dn)
-          call fast_adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), source_dn, &
-               &  emission(:,jcol), albedo(:,jcol), &
-               &  is_clear_sky_layer, i_cloud_top, flux_dn_clear, &
-               &  flux_up, flux_dn)
+          call fast_adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
+               & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer, i_cloud_top, &
+               & flux_dn_clear, flux_up, flux_dn)
         else
           ! Simpler down-then-up method to compute fluxes
           call calc_fluxes_no_scattering_lw(ng, nlev, &
-               &  transmittance(:,:,jcol), source_up(:,:,jcol), source_dn, emission(:,jcol), albedo(:,jcol), &
+               &  transmittance(:,:,jcol), source_up(:,:,jcol), source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), &
                &  flux_up, flux_dn)
         end if
         
