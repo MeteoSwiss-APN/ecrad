@@ -105,6 +105,51 @@ contains
 
   end subroutine calc_two_stream_gammas_lw
 
+  !---------------------------------------------------------------------
+  ! Calculate the two-stream coefficients gamma1 and gamma2 for the
+  ! longwave
+  ! cos: loop refactored with g -> jcol
+  subroutine calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa, g, &
+    &                               gamma1, gamma2)
+  
+#ifdef DO_DR_HOOK_TWO_STREAM
+ use yomhook, only : lhook, dr_hook
+#endif
+
+ integer, intent(in) :: istartcol, iendcol ! range of columns to process
+ ! Sngle scattering albedo and asymmetry factor:
+ real(jprb), intent(in),  dimension(:) :: ssa, g
+ real(jprb), intent(out), dimension(:) :: gamma1, gamma2
+
+ real(jprb) :: factor
+
+ integer    :: jcol
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ real(jprb) :: hook_handle
+
+ if (lhook) call dr_hook('radiation_two_stream:calc_two_stream_gammas_lw_lr',0,hook_handle)
+#endif
+
+! do jg = 1, ng
+ do jcol = istartcol,iendcol
+   ! Fu et al. (1997), Eq 2.9 and 2.10:
+   !      gamma1(jg) = LwDiffusivity * (1.0_jprb - 0.5_jprb*ssa(jg) &
+   !           &                    * (1.0_jprb + g(jg)))
+   !      gamma2(jg) = LwDiffusivity * 0.5_jprb * ssa(jg) &
+   !           &                    * (1.0_jprb - g(jg))
+   ! Reduce number of multiplications
+   factor = (LwDiffusivity * 0.5_jprb) * ssa(jcol)
+   gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g(jcol))
+   gamma2(jcol) = factor * (1.0_jprb - g(jcol))
+ end do
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ if (lhook) call dr_hook('radiation_two_stream:calc_two_stream_gammas_lw_lr',1,hook_handle)
+#endif
+
+end subroutine calc_two_stream_gammas_lw_lr
+
 
   !---------------------------------------------------------------------
   ! Calculate the two-stream coefficients gamma1-gamma4 in the
@@ -244,7 +289,99 @@ contains
 #endif
   
   end subroutine calc_reflectance_transmittance_lw
-  
+
+    !---------------------------------------------------------------------
+  ! Compute the longwave reflectance and transmittance to diffuse
+  ! radiation using the Meador & Weaver formulas, as well as the
+  ! upward flux at the top and the downward flux at the base of the
+  ! layer due to emission from within the layer assuming a linear
+  ! variation of Planck function within the layer.
+  subroutine calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
+    &    od, gamma1, gamma2, planck_top, planck_bot, &
+    &    reflectance, transmittance, source_up, source_dn)
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ use yomhook, only : lhook, dr_hook
+#endif
+
+ integer, intent(in) :: istartcol, iendcol
+
+ ! Optical depth and single scattering albedo
+ real(jprb), intent(in), dimension(istartcol:iendcol) :: od
+
+ ! The two transfer coefficients from the two-stream
+ ! differentiatial equations (computed by
+ ! calc_two_stream_gammas_lw)
+ real(jprb), intent(in), dimension(istartcol:iendcol) :: gamma1, gamma2
+
+ ! The Planck terms (functions of temperature) at the top and
+ ! bottom of the layer
+ real(jprb), intent(in), dimension(istartcol:iendcol) :: planck_top, planck_bot
+
+ ! The diffuse reflectance and transmittance, i.e. the fraction of
+ ! diffuse radiation incident on a layer from either top or bottom
+ ! that is reflected back or transmitted through
+ real(jprb), intent(out), dimension(istartcol:iendcol) :: reflectance, transmittance
+
+ ! The upward emission at the top of the layer and the downward
+ ! emission at its base, due to emission from within the layer
+ real(jprb), intent(out), dimension(istartcol:iendcol) :: source_up, source_dn
+
+ real(jprd) :: k_exponent, reftrans_factor
+ real(jprd) :: exponential  ! = exp(-k_exponent*od)
+ real(jprd) :: exponential2 ! = exp(-2*k_exponent*od)
+
+ real(jprd) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot
+
+ integer :: jcol
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ real(jprb) :: hook_handle
+
+ if (lhook) call dr_hook('radiation_two_stream:calc_reflectance_transmittance_lw_lr',0,hook_handle)
+#endif
+
+ do jcol = istartcol,iendcol
+   if (od(jcol) > 1.0e-3_jprd) then
+     k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
+          1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
+     exponential = exp_fast(-k_exponent*od(jcol))
+     exponential2 = exponential*exponential
+     reftrans_factor = 1.0 / (k_exponent + gamma1(jcol) + (k_exponent - gamma1(jcol))*exponential2)
+     ! Meador & Weaver (1980) Eq. 25
+     reflectance(jcol) = gamma2(jcol) * (1.0_jprd - exponential2) * reftrans_factor
+     ! Meador & Weaver (1980) Eq. 26
+     transmittance(jcol) = 2.0_jprd * k_exponent * exponential * reftrans_factor
+   
+     ! Compute upward and downward emission assuming the Planck
+     ! function to vary linearly with optical depth within the layer
+     ! (e.g. Wiscombe , JQSRT 1976).
+
+     ! Stackhouse and Stephens (JAS 1991) Eqs 5 & 12
+     coeff = (planck_bot(jcol)-planck_top(jcol)) / (od(jcol)*(gamma1(jcol)+gamma2(jcol)))
+     coeff_up_top  =  coeff + planck_top(jcol)
+     coeff_up_bot  =  coeff + planck_bot(jcol)
+     coeff_dn_top  = -coeff + planck_top(jcol)
+     coeff_dn_bot  = -coeff + planck_bot(jcol)
+     source_up(jcol) =  coeff_up_top - reflectance(jcol) * coeff_dn_top - transmittance(jcol) * coeff_up_bot
+     source_dn(jcol) =  coeff_dn_bot - reflectance(jcol) * coeff_up_bot - transmittance(jcol) * coeff_dn_top
+   else
+     k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
+          1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
+     reflectance(jcol) = gamma2(jcol) * od(jcol)
+     transmittance(jcol) = (1.0_jprb - k_exponent*od(jcol)) / (1.0_jprb + od(jcol)*(gamma1(jcol)-k_exponent))
+     source_up(jcol) = (1.0_jprb - reflectance(jcol) - transmittance(jcol)) &
+          &       * 0.5 * (planck_top(jcol) + planck_bot(jcol))
+     source_dn(jcol) = source_up(jcol)
+   end if
+ end do
+ 
+#ifdef DO_DR_HOOK_TWO_STREAM
+ if (lhook) call dr_hook('radiation_two_stream:calc_reflectance_transmittance_lw_lr',1,hook_handle)
+#endif
+
+end subroutine calc_reflectance_transmittance_lw_lr
+
 
 
   !---------------------------------------------------------------------
@@ -397,7 +534,87 @@ contains
 
   end subroutine calc_no_scattering_transmittance_lw
    
-   
+    !---------------------------------------------------------------------
+  ! Compute the longwave transmittance to diffuse radiation in the
+  ! no-scattering case, as well as the upward flux at the top and the
+  ! downward flux at the base of the layer due to emission from within
+  ! the layer assuming a linear variation of Planck function within
+  ! the layer.
+  subroutine calc_no_scattering_transmittance_lw_lr(istartcol, iendcol, &
+    &    od, planck_top, planck_bot, transmittance, source_up, source_dn)
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ use yomhook, only : lhook, dr_hook
+#endif
+
+ integer, intent(in) :: istartcol, iendcol
+
+ ! Optical depth and single scattering albedo
+ real(jprb), intent(in), dimension(istartcol:iendcol) :: od
+
+ ! The Planck terms (functions of temperature) at the top and
+ ! bottom of the layer
+ real(jprb), intent(in), dimension(istartcol:iendcol) :: planck_top, planck_bot
+
+ ! The diffuse transmittance, i.e. the fraction of diffuse
+ ! radiation incident on a layer from either top or bottom that is
+ ! reflected back or transmitted through
+ real(jprb), intent(out), dimension(istartcol:iendcol) :: transmittance
+
+ ! The upward emission at the top of the layer and the downward
+ ! emission at its base, due to emission from within the layer
+ real(jprb), intent(out), dimension(istartcol:iendcol) :: source_up, source_dn
+
+ real(jprd) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot !, planck_mean
+
+ integer :: jcol
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ real(jprb) :: hook_handle
+
+ if (lhook) call dr_hook('radiation_two_stream:calc_no_scattering_transmittance_lw_lr',0,hook_handle)
+#endif
+
+ do jcol = istartcol,iendcol
+   ! Compute upward and downward emission assuming the Planck
+   ! function to vary linearly with optical depth within the layer
+   ! (e.g. Wiscombe , JQSRT 1976).
+   if (od(jcol) > 1.0e-3) then
+     ! Simplified from calc_reflectance_transmittance_lw above
+     coeff = LwDiffusivity*od(jcol)
+     transmittance(jcol) = exp_fast(-coeff)
+     coeff = (planck_bot(jcol)-planck_top(jcol)) / coeff
+     coeff_up_top  =  coeff + planck_top(jcol)
+     coeff_up_bot  =  coeff + planck_bot(jcol)
+     coeff_dn_top  = -coeff + planck_top(jcol)
+     coeff_dn_bot  = -coeff + planck_bot(jcol)
+     source_up(jcol) =  coeff_up_top - transmittance(jcol) * coeff_up_bot
+     source_dn(jcol) =  coeff_dn_bot - transmittance(jcol) * coeff_dn_top
+   else
+     ! Linear limit at low optical depth
+     coeff = LwDiffusivity*od(jcol)
+     transmittance(jcol) = 1.0_jprb - coeff
+     source_up(jcol) = coeff * 0.5_jprb * (planck_top(jcol)+planck_bot(jcol))
+     source_dn(jcol) = source_up(jcol)
+   end if
+ end do
+
+ ! Method in the older IFS radiation scheme
+ !    do j = 1, n
+ !      coeff = od(jg) / (3.59712_jprd + od(jg))
+ !      planck_mean = 0.5_jprd * (planck_top(jg) + planck_bot(jg))
+ !      
+ !      source_up(jg) = (1.0_jprd-transmittance(jg)) * (planck_mean + (planck_top(jg)    - planck_mean) * coeff)
+ !      source_dn(jg) = (1.0_jprd-transmittance(jg)) * (planck_mean + (planck_bot(jg) - planck_mean) * coeff)
+ !    end do
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ if (lhook) call dr_hook('radiation_two_stream:calc_no_scattering_transmittance_lw_lr',1,hook_handle)
+#endif
+
+end subroutine calc_no_scattering_transmittance_lw_lr
+
+
   !---------------------------------------------------------------------
   ! Compute the shortwave reflectance and transmittance to diffuse
   ! radiation using the Meador & Weaver formulas, as well as the
