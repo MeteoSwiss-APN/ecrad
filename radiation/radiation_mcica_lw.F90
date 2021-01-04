@@ -58,7 +58,7 @@ contains
          &                               calc_fluxes_no_scattering_lw, &
          &                               calc_fluxes_no_scattering_lw_lr
     use radiation_lw_derivatives, only : calc_lw_derivatives_ica, modify_lw_derivatives_ica
-    use radiation_cloud_generator, only: cloud_generator
+    use radiation_cloud_generator, only: cloud_generator_lr
 
     implicit none
 
@@ -126,14 +126,16 @@ contains
 
     ! Optical depth scaling from the cloud generator, zero indicating
     ! clear skies
-    real(jprb), dimension(config%n_g_lw,nlev) :: od_scaling
+    ! cos; original (g, nlev), Future demote to (jcol, nlev)
+    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_scaling
 
     ! Modified optical depth after McICA scaling to represent cloud
     ! inhomogeneity
     real(jprb), dimension(config%n_g_lw) :: od_cloud_new
 
     ! Total cloud cover output from the cloud generator
-    real(jprb) :: total_cloud_cover
+    ! cos: original (scalar). Future demote to (scalar) again
+    real(jprb), dimension(istartcol:iendcol) :: total_cloud_cover
 
     ! Identify clear-sky layers
     logical :: is_clear_sky_layer(nlev)
@@ -202,29 +204,36 @@ contains
         ref_clear = 0.0_jprb
       end if
     ! cos: todo once all fields are promoted to 3D
-    end do  
+    enddo
+    ! cos: array syntax once data layouts are compatible
     do jcol = istartcol,iendcol
 
       ! Sum over g-points to compute broadband fluxes
       flux%lw_up_clear(jcol,:) = sum(flux_up_clear(:,:,jcol),1)
       flux%lw_dn_clear(jcol,:) = sum(flux_dn_clear(:,:,jcol),1)
-      ! Store surface spectral downwelling fluxes
       flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(:,nlev+1,jcol)
+    enddo
+
+!    do jg = 1, ng
+!    do jcol = istartcol,iendcol
 
       ! Do cloudy-sky calculation; add a prime number to the seed in
       ! the longwave
-      call cloud_generator(ng, nlev, config%i_overlap_scheme, &
+    do jcol = istartcol, iendcol
+      call cloud_generator_lr(ng, istartcol, iendcol, nlev, config%i_overlap_scheme, &
            &  single_level%iseed(jcol) + 997, &
            &  config%cloud_fraction_threshold, &
-           &  cloud%fraction(jcol,:), cloud%overlap_param(jcol,:), &
+           &  cloud%fraction(jcol, :), cloud%overlap_param(jcol,:), &
            &  config%cloud_inhom_decorr_scaling, cloud%fractional_std(jcol,:), &
-           &  config%pdf_sampler, od_scaling, total_cloud_cover, &
+           &  config%pdf_sampler, od_scaling(:,:,jcol), total_cloud_cover(jcol), &
            &  is_beta_overlap=config%use_beta_overlap)
       
       ! Store total cloud cover
-      flux%cloud_cover_lw(jcol) = total_cloud_cover
+      flux%cloud_cover_lw(jcol) = total_cloud_cover(jcol)
       
-      if (total_cloud_cover >= config%cloud_fraction_threshold) then
+    enddo
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
         ! Total-sky calculation
 
         is_clear_sky_layer = .true.
@@ -238,7 +247,7 @@ contains
               i_cloud_top = jlev
             end if
 
-            od_cloud_new = od_scaling(:,jlev) &
+            od_cloud_new = od_scaling(:,jlev, jcol) &
                  &  * od_cloud(config%i_band_from_reordered_g_lw,jlev,jcol)
             od_total = od(:,jlev,jcol) + od_cloud_new
             ssa_total = 0.0_jprb
@@ -334,23 +343,23 @@ contains
 
         ! Cloudy flux profiles currently assume completely overcast
         ! skies; perform weighted average with clear-sky profile
-        flux%lw_up(jcol,:) =  total_cloud_cover *flux%lw_up(jcol,:) &
-             &  + (1.0_jprb - total_cloud_cover)*flux%lw_up_clear(jcol,:)
-        flux%lw_dn(jcol,:) =  total_cloud_cover *flux%lw_dn(jcol,:) &
-             &  + (1.0_jprb - total_cloud_cover)*flux%lw_dn_clear(jcol,:)
+        flux%lw_up(jcol,:) =  total_cloud_cover(jcol) *flux%lw_up(jcol,:) &
+             &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_up_clear(jcol,:)
+        flux%lw_dn(jcol,:) =  total_cloud_cover(jcol) *flux%lw_dn(jcol,:) &
+             &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_dn_clear(jcol,:)
         ! Store surface spectral downwelling fluxes
-        flux%lw_dn_surf_g(:,jcol) = total_cloud_cover*flux_dn(:,nlev+1) &
-             &  + (1.0_jprb - total_cloud_cover)*flux%lw_dn_surf_clear_g(:,jcol)
+        flux%lw_dn_surf_g(:,jcol) = total_cloud_cover(jcol)*flux_dn(:,nlev+1) &
+             &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_dn_surf_clear_g(:,jcol)
 
         ! Compute the longwave derivatives needed by Hogan and Bozzo
         ! (2015) approximate radiation update scheme
         if (config%do_lw_derivatives) then
           call calc_lw_derivatives_ica(ng, nlev, jcol, transmittance(:,:,jcol), flux_up(:,nlev+1), &
                &                       flux%lw_derivatives)
-          if (total_cloud_cover < 1.0_jprb - config%cloud_fraction_threshold) then
+          if (total_cloud_cover(jcol) < 1.0_jprb - config%cloud_fraction_threshold) then
             ! Modify the existing derivative with the contribution from the clear sky
             call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear(:,:,jcol), flux_up_clear(:,nlev+1,jcol), &
-                 &                         1.0_jprb-total_cloud_cover, flux%lw_derivatives)
+                 &                         1.0_jprb-total_cloud_cover(jcol), flux%lw_derivatives)
           end if
         end if
 
