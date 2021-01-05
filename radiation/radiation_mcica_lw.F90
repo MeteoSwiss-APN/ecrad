@@ -214,23 +214,19 @@ contains
       flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(:,nlev+1,jcol)
     enddo
 
-!    do jg = 1, ng
-!    do jcol = istartcol,iendcol
-
       ! Do cloudy-sky calculation; add a prime number to the seed in
       ! the longwave
-    do jcol = istartcol, iendcol
-      call cloud_generator_lr(ng, istartcol, iendcol, nlev, config%i_overlap_scheme, &
-           &  single_level%iseed(jcol) + 997, &
+    call cloud_generator_lr(ng, istartcol, iendcol, jcol, nlev, config%i_overlap_scheme, &
+           &  single_level%iseed, &
            &  config%cloud_fraction_threshold, &
-           &  cloud%fraction(jcol, :), cloud%overlap_param(jcol,:), &
-           &  config%cloud_inhom_decorr_scaling, cloud%fractional_std(jcol,:), &
-           &  config%pdf_sampler, od_scaling(:,:,jcol), total_cloud_cover(jcol), &
+           &  cloud%fraction, cloud%overlap_param, &
+           &  config%cloud_inhom_decorr_scaling, cloud%fractional_std, &
+           &  config%pdf_sampler, od_scaling, total_cloud_cover, &
            &  is_beta_overlap=config%use_beta_overlap)
       
+    do jcol = istartcol, iendcol
       ! Store total cloud cover
-      flux%cloud_cover_lw(jcol) = total_cloud_cover(jcol)
-      
+      flux%cloud_cover_lw(jcol) = total_cloud_cover(jcol)      
     enddo
     do jcol = istartcol,iendcol
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
