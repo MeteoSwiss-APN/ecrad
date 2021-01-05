@@ -298,7 +298,9 @@ contains
  ! Local variables
 
  ! Cumulative cloud cover from TOA to the base of each layer
- real(jprb) :: cum_cloud_cover(nlev)
+ ! cos: original (lev). Future can not be demoted since we move jcol innermost
+ ! we need to retain the independent jcol calculations
+ real(jprb) :: cum_cloud_cover(istartcol:iendcol,nlev)
 
  ! Scaled random number for finding cloud
  real(jprb) :: trigger
@@ -323,33 +325,36 @@ contains
 
  ! Cloud cover of a pair of layers, and amount by which cloud at
  ! next level increases total cloud cover as seen from above
- real(jprb), dimension(nlev-1) :: pair_cloud_cover, overhang
+  ! cos: original (nlev+1). Future can not be demoted since we move jcol innermost
+ ! we need to retain the independent jcol calculations
+ real(jprb), dimension(istartcol:iendcol, nlev-1) :: pair_cloud_cover, overhang
 
  real(jprb) :: hook_handle
 
- do jcol = istartcol, iendcol
   if (lhook) call dr_hook('radiation_cloud_generator:cloud_generator',0,hook_handle)
 
-  ! do jcol=istartcol, iendcol
+  do jcol = istartcol, iendcol
 
     if (i_overlap_scheme == IOverlapExponentialRandom) then
       call cum_cloud_cover_exp_ran(nlev, frac(jcol,:), overlap_param(jcol,:), &
-          &   cum_cloud_cover, pair_cloud_cover, is_beta_overlap)
+          &   cum_cloud_cover(jcol,:), pair_cloud_cover(jcol,:), is_beta_overlap)
     else if (i_overlap_scheme == IOverlapMaximumRandom) then
       call cum_cloud_cover_max_ran(nlev, frac(jcol,:), &
-          &   cum_cloud_cover, pair_cloud_cover)
+          &   cum_cloud_cover(jcol,:), pair_cloud_cover(jcol,:))
     else if (i_overlap_scheme == IOverlapExponential) then
       call cum_cloud_cover_exp_exp(nlev, frac(jcol,:), overlap_param(jcol,:), &
-          &   cum_cloud_cover, pair_cloud_cover, is_beta_overlap)
+          &   cum_cloud_cover(jcol,:), pair_cloud_cover(jcol,:), is_beta_overlap)
     else
       write(nulerr,'(a)') '*** Error: cloud overlap scheme not recognised'
       call radiation_abort()
     end if
 
-    total_cloud_cover(jcol) = cum_cloud_cover(nlev);
+    total_cloud_cover(jcol) = cum_cloud_cover(jcol,nlev);
     do jlev = 1,nlev-1
-      overhang(jlev) = cum_cloud_cover(jlev+1)-cum_cloud_cover(jlev)
+      overhang(jcol,jlev) = cum_cloud_cover(jcol,jlev+1)-cum_cloud_cover(jcol,jlev)
     end do
+  enddo
+  do jcol = istartcol, iendcol
 
     if (total_cloud_cover(jcol) < frac_threshold) then
       ! Treat column as clear sky: calling function therefore will not
@@ -381,7 +386,6 @@ contains
               &  = overlap_param(jcol,jlev)**(1.0_jprb/decorrelation_scaling)
         end if
       end do
-
       ! Reset optical depth scaling to clear skies
       od_scaling(:,:,jcol) = 0.0_jprb
 
@@ -398,20 +402,20 @@ contains
         ! random number, and store in itrigger
         trigger = rand_top(jg) * total_cloud_cover(jcol)
         jlev = ibegin
-        do while (trigger > cum_cloud_cover(jlev) .and. jlev < iend)
+        do while (trigger > cum_cloud_cover(jcol,jlev) .and. jlev < iend)
           jlev = jlev + 1
         end do
         itrigger = jlev
 
         if (i_overlap_scheme /= IOverlapExponential) then
           call generate_column_exp_ran(ng, nlev, jg, random_stream, pdf_sampler, &
-              &  frac(jcol,:), pair_cloud_cover, &
-              &  cum_cloud_cover, overhang, fractional_std(jcol,:), overlap_param_inhom, &
+              &  frac(jcol,:), pair_cloud_cover(jcol,:), &
+              &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom, &
               &  itrigger, iend, od_scaling(:,:,jcol))
         else
           call generate_column_exp_exp(ng, nlev, jg, random_stream, pdf_sampler, &
-              &  frac(jcol,:), pair_cloud_cover, &
-              &  cum_cloud_cover, overhang, fractional_std(jcol,:), overlap_param_inhom, &
+              &  frac(jcol,:), pair_cloud_cover(jcol,:), &
+              &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom, &
               &  itrigger, iend, od_scaling(:,:,jcol))
         end if
         
