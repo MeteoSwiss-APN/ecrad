@@ -316,9 +316,10 @@ contains
  type(randomnumberstream) :: random_stream
  
  ! First and last cloudy layers
- integer :: ibegin, iend
-
- integer :: itrigger
+ ! cos: origina (scalar). Need to remain like that
+ integer :: ibegin(istartcol:iendcol), iend(istartcol:iendcol)
+ ! cos: origina (scalar). Need to remain like that
+ integer :: itrigger(istartcol:iendcol)
 
  ! Loop index for model level and g-point
  integer :: jlev, jg, jcol
@@ -354,8 +355,8 @@ contains
       overhang(jcol,jlev) = cum_cloud_cover(jcol,jlev+1)-cum_cloud_cover(jcol,jlev)
     end do
   enddo
-  do jcol = istartcol, iendcol
 
+  do jcol = istartcol, iendcol
     if (total_cloud_cover(jcol) < frac_threshold) then
       ! Treat column as clear sky: calling function therefore will not
       ! use od_scaling so we don't need to calculate it
@@ -369,18 +370,24 @@ contains
       do while (frac(jcol,jlev) <= 0.0_jprb) 
         jlev = jlev + 1
       end do
-      ibegin = jlev
-      iend = jlev
+      ibegin(jcol) = jlev
+      iend(jcol) = jlev
       do jlev = jlev+1,nlev
         if (frac(jcol,jlev) > 0.0_jprb) then
-          iend = jlev
+          iend(jcol) = jlev
         end if
       end do
+    endif
+  enddo
 
+  do jcol = istartcol, iendcol
+
+    if (total_cloud_cover(jcol) >= frac_threshold) then
+      ! ! Cloud is present: need to calculate od_scaling
       ! Set overlap parameter of inhomogeneities
       overlap_param_inhom = overlap_param(jcol,:)
 
-      do jlev = ibegin,iend-1
+      do jlev = ibegin(jcol),iend(jcol)-1
         if (overlap_param(jcol,jlev) > 0.0_jprb) then
           overlap_param_inhom(jlev) &
               &  = overlap_param(jcol,jlev)**(1.0_jprb/decorrelation_scaling)
@@ -401,31 +408,30 @@ contains
         ! Find the cloud top height corresponding to the current
         ! random number, and store in itrigger
         trigger = rand_top(jg) * total_cloud_cover(jcol)
-        jlev = ibegin
-        do while (trigger > cum_cloud_cover(jcol,jlev) .and. jlev < iend)
+        jlev = ibegin(jcol)
+        do while (trigger > cum_cloud_cover(jcol,jlev) .and. jlev < iend(jcol))
           jlev = jlev + 1
         end do
-        itrigger = jlev
+        itrigger(jcol) = jlev
 
         if (i_overlap_scheme /= IOverlapExponential) then
           call generate_column_exp_ran(ng, nlev, jg, random_stream, pdf_sampler, &
               &  frac(jcol,:), pair_cloud_cover(jcol,:), &
               &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom, &
-              &  itrigger, iend, od_scaling(:,:,jcol))
+              &  itrigger(jcol), iend(jcol), od_scaling(:,:,jcol))
         else
           call generate_column_exp_exp(ng, nlev, jg, random_stream, pdf_sampler, &
               &  frac(jcol,:), pair_cloud_cover(jcol,:), &
               &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom, &
-              &  itrigger, iend, od_scaling(:,:,jcol))
+              &  itrigger(jcol), iend(jcol), od_scaling(:,:,jcol))
         end if
         
       end do
 
     end if
-  ! enddo
+  enddo
 
   if (lhook) call dr_hook('radiation_cloud_generator:cloud_generator',1,hook_handle)
- enddo
 
 end subroutine cloud_generator_lr
 
