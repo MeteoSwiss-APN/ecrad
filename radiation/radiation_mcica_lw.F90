@@ -115,7 +115,8 @@ contains
 
     ! Combined gas+aerosol+cloud optical depth, single scattering
     ! albedo and asymmetry factor
-    real(jprb), dimension(config%n_g_lw) :: od_total, ssa_total, g_total
+    ! cos: original (ng). Future demote to jcol
+    real(jprb), dimension(config%n_g_lw,istartcol:iendcol) :: od_total, ssa_total, g_total
 
     ! Combined scattering optical depth
     real(jprb) :: scat_od, scat_od_total(config%n_g_lw)
@@ -138,10 +139,12 @@ contains
     real(jprb), dimension(istartcol:iendcol) :: total_cloud_cover
 
     ! Identify clear-sky layers
-    logical :: is_clear_sky_layer(nlev)
+    !cos : temporarily added jcol
+    logical :: is_clear_sky_layer(istartcol:iendcol, nlev)
 
     ! Index of the highest cloudy layer
-    integer :: i_cloud_top
+    ! cos : temporarily added jcol
+    integer :: i_cloud_top(istartcol:iendcol)
 
     ! Number of g points
     integer :: ng
@@ -169,9 +172,9 @@ contains
         ! Scattering case: first compute clear-sky reflectance,
         ! transmittance etc at each model level
         do jlev = 1,nlev
-          ssa_total = ssa(jg,jlev,:)
-          g_total   = g(jg,jlev,:)
-          call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total, g_total, &
+          ssa_total = ssa(:,jlev,:)
+          g_total   = g(:,jlev,:)
+          call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total(jg,:), g_total(jg,:), &
                &  gamma1(jg,:), gamma2(jg,:))
           call calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
                &  od(jg,jlev,:), gamma1(jg,:), gamma2(jg,:), &
@@ -232,22 +235,22 @@ contains
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
         ! Total-sky calculation
 
-        is_clear_sky_layer = .true.
-        i_cloud_top = nlev+1
+        is_clear_sky_layer(jcol,:) = .true.
+        i_cloud_top(jcol) = nlev+1
         do jlev = 1,nlev
           ! Compute combined gas+aerosol+cloud optical properties
           if (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold) then
-            is_clear_sky_layer(jlev) = .false.
+            is_clear_sky_layer(jcol,jlev) = .false.
             ! Get index to the first cloudy layer from the top
-            if (i_cloud_top > jlev) then
-              i_cloud_top = jlev
+            if (i_cloud_top(jcol) > jlev) then
+              i_cloud_top(jcol) = jlev
             end if
 
             od_cloud_new = od_scaling(:,jlev, jcol) &
                  &  * od_cloud(config%i_band_from_reordered_g_lw,jlev,jcol)
-            od_total = od(:,jlev,jcol) + od_cloud_new
-            ssa_total = 0.0_jprb
-            g_total   = 0.0_jprb
+            od_total(:,jcol) = od(:,jlev,jcol) + od_cloud_new
+            ssa_total(:,jcol) = 0.0_jprb
+            g_total(:,jcol)   = 0.0_jprb
 
             if (config%do_lw_cloud_scattering) then
               ! Scattering case: calculate reflectance and
@@ -261,23 +264,23 @@ contains
                      &     + ssa_cloud(config%i_band_from_reordered_g_lw,jlev,jcol) &
                      &     *  od_cloud_new
                 where (scat_od_total > 0.0_jprb)
-                  g_total = (g(:,jlev,jcol)*ssa(:,jlev,jcol)*od(:,jlev,jcol) &
+                  g_total(:,jcol) = (g(:,jlev,jcol)*ssa(:,jlev,jcol)*od(:,jlev,jcol) &
                        &     +   g_cloud(config%i_band_from_reordered_g_lw,jlev,jcol) &
                        &     * ssa_cloud(config%i_band_from_reordered_g_lw,jlev,jcol) &
                        &     *  od_cloud_new) &
                        &     / scat_od_total
                 end where                
-                where (od_total > 0.0_jprb)
-                  ssa_total = scat_od_total / od_total
+                where (od_total(:,jcol) > 0.0_jprb)
+                  ssa_total(:,jcol) = scat_od_total / od_total(:,jcol)
                 end where
               else
                 do jg = 1,ng
-                  if (od_total(jg) > 0.0_jprb) then
+                  if (od_total(jg,jcol) > 0.0_jprb) then
                     scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                          &     * od_cloud_new(jg)
-                    ssa_total(jg) = scat_od / od_total(jg)
+                    ssa_total(jg,jcol) = scat_od / od_total(jg,jcol)
                     if (scat_od > 0.0_jprb) then
-                      g_total(jg) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                      g_total(jg,jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                            &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                            &     *  od_cloud_new(jg) / scat_od
                     end if
@@ -287,17 +290,17 @@ contains
             
               ! Compute cloudy-sky reflectance, transmittance etc at
               ! each model level
-              call calc_two_stream_gammas_lw(ng, ssa_total, g_total, &
+              call calc_two_stream_gammas_lw(ng, ssa_total(:,jcol), g_total(:,jcol), &
                    &  gamma1(:,jcol), gamma2(:,jcol))
               call calc_reflectance_transmittance_lw(ng, &
-                   &  od_total, gamma1(:,jcol), gamma2(:,jcol), &
+                   &  od_total(:,jcol), gamma1(:,jcol), gamma2(:,jcol), &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
                    &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), &
                    & source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
             else
               ! No-scattering case: use simpler functions for
               ! transmission and emission
-              call calc_no_scattering_transmittance_lw(ng, od_total, &
+              call calc_no_scattering_transmittance_lw(ng, od_total(:,jcol), &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
                    &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
             end if
@@ -310,7 +313,13 @@ contains
             source_dn(:,jlev,jcol) = source_dn_clear(:,jlev,jcol)
           end if
         end do
-        
+!cos split        
+      endif
+    enddo
+
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+!cos end split
         if (config%do_lw_aerosol_scattering) then
           ! Use adding method to compute fluxes for an overcast sky,
           ! allowing for scattering in all layers
@@ -324,7 +333,7 @@ contains
 !               &  emission(:,jcol), albedo(:,jcol), &
 !               &  flux_up, flux_dn)
           call fast_adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
-               & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer, i_cloud_top, &
+               & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer(jcol,:), i_cloud_top(jcol), &
                & flux_dn_clear(:,:,jcol), flux_up, flux_dn)
         else
           ! Simpler down-then-up method to compute fluxes
