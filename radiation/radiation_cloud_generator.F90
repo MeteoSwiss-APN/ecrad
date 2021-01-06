@@ -306,7 +306,8 @@ contains
  real(jprb) :: trigger
 
  ! Uniform deviates between 0 and 1
- real(jprb) :: rand_top(ng)
+ ! cos: original (ng). Future demote to jcol only
+ real(jprb) :: rand_top(istartcol:iendcol,ng)
 
  ! Overlap parameter of inhomogeneities
  !cos: original (nlev). Future can not be demoted
@@ -314,7 +315,8 @@ contains
 
  ! Seed for random number generator and stream for producing random
  ! numbers
- type(randomnumberstream) :: random_stream
+ !cos: oritinal (scalar)
+ type(randomnumberstream) :: random_stream(istartcol:iendcol)
  
  ! First and last cloudy layers
  ! cos: origina (scalar). Need to remain like that
@@ -402,18 +404,26 @@ contains
   do jcol=istartcol,iendcol
     if (total_cloud_cover(jcol) >= frac_threshold) then
 
-      ! Expensive operation: initialize random number generator for
-      ! this column
-      call initialize_random_numbers(iseed(jcol)+997, random_stream)
+              ! Expensive operation: initialize random number generator for
+        ! this column
+      call initialize_random_numbers(iseed(jcol)+997, random_stream(jcol))
 
       ! Compute ng random numbers to use to locate cloud top
-      call uniform_distribution(rand_top, random_stream)
+      call uniform_distribution(rand_top(jcol,:), random_stream(jcol))
+    endif
+  enddo
 
+  do jcol=istartcol,iendcol
+    if (total_cloud_cover(jcol) >= frac_threshold) then
       ! Loop over ng columns
       do jg = 1,ng
+        ! cos: the random num generation was before out of the innermost loop. 
+        ! With the reordering had to be brought inside. We would need to refactor 
+        ! the random number generation subroutines to recover performance
+
         ! Find the cloud top height corresponding to the current
         ! random number, and store in itrigger
-        trigger = rand_top(jg) * total_cloud_cover(jcol)
+        trigger = rand_top(jcol,jg) * total_cloud_cover(jcol)
         jlev = ibegin(jcol)
         do while (trigger > cum_cloud_cover(jcol,jlev) .and. jlev < iend(jcol))
           jlev = jlev + 1
@@ -421,12 +431,12 @@ contains
         itrigger(jcol) = jlev
 
         if (i_overlap_scheme /= IOverlapExponential) then
-          call generate_column_exp_ran(ng, nlev, jg, random_stream, pdf_sampler, &
+          call generate_column_exp_ran(ng, nlev, jg, random_stream(jcol), pdf_sampler, &
               &  frac(jcol,:), pair_cloud_cover(jcol,:), &
               &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom(jcol,:), &
               &  itrigger(jcol), iend(jcol), od_scaling(:,:,jcol))
         else
-          call generate_column_exp_exp(ng, nlev, jg, random_stream, pdf_sampler, &
+          call generate_column_exp_exp(ng, nlev, jg, random_stream(jcol), pdf_sampler, &
               &  frac(jcol,:), pair_cloud_cover(jcol,:), &
               &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom(jcol,:), &
               &  itrigger(jcol), iend(jcol), od_scaling(:,:,jcol))
