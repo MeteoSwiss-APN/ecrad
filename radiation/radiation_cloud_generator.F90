@@ -229,7 +229,7 @@ contains
   ! cover is also returned, so the calling function can then do a
   ! weighted average of clear and cloudy skies; this is a way to
   ! reduce the Monte Carlo noise in profiles with low cloud cover.
-  subroutine cloud_generator_lr(ng, istartcol, iendcol, jcolo, nlev, i_overlap_scheme, &
+  subroutine cloud_generator_lr(ng, istartcol, iendcol, nlev, i_overlap_scheme, &
     &  iseed, frac_threshold, &
     &  frac, overlap_param, decorrelation_scaling, &
     &  fractional_std, pdf_sampler, &
@@ -251,7 +251,7 @@ contains
 
  ! Inputs
  integer, intent(in)     :: ng    ! number of g points
- integer, intent(in)     :: istartcol, iendcol, jcolo
+ integer, intent(in)     :: istartcol, iendcol
  integer, intent(in)     :: nlev  ! number of model levels
  integer, intent(in)     :: i_overlap_scheme
  integer, intent(in)     :: iseed(:) ! seed for random number generator
@@ -321,8 +321,7 @@ contains
  ! First and last cloudy layers
  ! cos: origina (scalar). Need to remain like that
  integer :: ibegin(istartcol:iendcol), iend(istartcol:iendcol)
- ! cos: origina (scalar). Need to remain like that
- integer :: itrigger(istartcol:iendcol)
+ integer :: itrigger
 
  ! Loop index for model level and g-point
  integer :: jlev, jg, jcol
@@ -413,10 +412,10 @@ contains
     endif
   enddo
 
-  do jcol=istartcol,iendcol
-    if (total_cloud_cover(jcol) >= frac_threshold) then
+  do jg = 1,ng
+    do jcol=istartcol,iendcol
+      if (total_cloud_cover(jcol) >= frac_threshold) then
       ! Loop over ng columns
-      do jg = 1,ng
         ! cos: the random num generation was before out of the innermost loop. 
         ! With the reordering had to be brought inside. We would need to refactor 
         ! the random number generation subroutines to recover performance
@@ -428,23 +427,21 @@ contains
         do while (trigger > cum_cloud_cover(jcol,jlev) .and. jlev < iend(jcol))
           jlev = jlev + 1
         end do
-        itrigger(jcol) = jlev
+        itrigger = jlev
 
         if (i_overlap_scheme /= IOverlapExponential) then
           call generate_column_exp_ran(ng, nlev, jg, random_stream(jcol), pdf_sampler, &
               &  frac(jcol,:), pair_cloud_cover(jcol,:), &
               &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom(jcol,:), &
-              &  itrigger(jcol), iend(jcol), od_scaling(:,:,jcol))
+              &  itrigger, iend(jcol), od_scaling(:,:,jcol))
         else
           call generate_column_exp_exp(ng, nlev, jg, random_stream(jcol), pdf_sampler, &
               &  frac(jcol,:), pair_cloud_cover(jcol,:), &
               &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom(jcol,:), &
-              &  itrigger(jcol), iend(jcol), od_scaling(:,:,jcol))
-        end if
-        
-      end do
-
-    end if
+              &  itrigger, iend(jcol), od_scaling(:,:,jcol))
+        end if      
+      endif
+    end do
   enddo
 
   if (lhook) call dr_hook('radiation_cloud_generator:cloud_generator',1,hook_handle)

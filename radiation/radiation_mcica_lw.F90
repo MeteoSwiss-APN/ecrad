@@ -216,7 +216,7 @@ contains
 
       ! Do cloudy-sky calculation; add a prime number to the seed in
       ! the longwave
-    call cloud_generator_lr(ng, istartcol, iendcol, jcol, nlev, config%i_overlap_scheme, &
+    call cloud_generator_lr(ng, istartcol, iendcol, nlev, config%i_overlap_scheme, &
            &  single_level%iseed, &
            &  config%cloud_fraction_threshold, &
            &  cloud%fraction, cloud%overlap_param, &
