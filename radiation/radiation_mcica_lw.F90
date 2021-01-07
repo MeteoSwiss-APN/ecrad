@@ -245,6 +245,16 @@ contains
             if (i_cloud_top(jcol) > jlev) then
               i_cloud_top(jcol) = jlev
             end if
+          endif
+        enddo
+      endif
+    enddo
+
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+        do jlev = 1,nlev
+          ! Compute combined gas+aerosol+cloud optical properties
+          if (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold) then
 
             do jg=1,ng
               od_cloud_new(jg) = od_scaling(jg,jlev, jcol) &
