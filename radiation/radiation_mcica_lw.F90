@@ -40,7 +40,7 @@ contains
        &  emission, albedo, &
        &  flux)
 
-    use parkind1, only           : jprb
+    use parkind1, only           : jprb,jprd
     use yomhook,  only           : lhook, dr_hook
 
     use radiation_io,   only           : nulerr, radiation_abort
@@ -53,7 +53,16 @@ contains
          &                               calc_reflectance_transmittance_lw, &
          &                               calc_reflectance_transmittance_lw_lr, &
          &                               calc_no_scattering_transmittance_lw, &
-         &                               calc_no_scattering_transmittance_lw_lr
+         &                               calc_no_scattering_transmittance_lw_lr, &
+#ifdef FAST_EXPONENTIAL
+         &                               exp_fast, &
+#endif
+         &                               LwDiffusivity
+
+#ifndef FAST_EXPONENTIAL
+#define exp_fast exp
+#endif
+
     use radiation_adding_ica_lw, only  : adding_ica_lw, adding_ica_lw_lr, fast_adding_ica_lw, &
          &                               calc_fluxes_no_scattering_lw, &
          &                               calc_fluxes_no_scattering_lw_lr
@@ -151,6 +160,15 @@ contains
 
     ! Loop indices for level, column and g point
     integer :: jlev, jcol, jg
+
+    ! cos: inlining of functions
+    real(jprb) :: factor
+    real(jprd) :: k_exponent, reftrans_factor
+    real(jprd) :: exponential  ! = exp(-k_exponent*od)
+    real(jprd) :: exponential2 ! = exp(-2*k_exponent*od)
+
+    real(jprd) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot
+    ! end cos
 
     real(jprb) :: hook_handle
 
@@ -251,86 +269,187 @@ contains
     enddo
 
     do jcol = istartcol,iendcol
-      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
-        do jlev = 1,nlev
-          ! Compute combined gas+aerosol+cloud optical properties
+      do jlev = 1,nlev
+        ! Compute combined gas+aerosol+cloud optical properties
+        do jg=1,ng
+
+          if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
           if (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold) then
+          od_cloud_new(jg) = od_scaling(jg,jlev, jcol) &
+              &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
+          od_total(jg,jcol) = od(jg,jlev,jcol) + od_cloud_new(jg)
+          ssa_total(jg,jcol) = 0.0_jprb
+          g_total(jg,jcol)   = 0.0_jprb
+          endif
+          endif
+        enddo
 
-            do jg=1,ng
-              od_cloud_new(jg) = od_scaling(jg,jlev, jcol) &
-                  &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
-              od_total(jg,jcol) = od(jg,jlev,jcol) + od_cloud_new(jg)
-              ssa_total(jg,jcol) = 0.0_jprb
-              g_total(jg,jcol)   = 0.0_jprb
-            enddo
+        if (config%do_lw_cloud_scattering) then
+          ! Scattering case: calculate reflectance and
+          ! transmittance at each model level
 
-            if (config%do_lw_cloud_scattering) then
-              ! Scattering case: calculate reflectance and
-              ! transmittance at each model level
+          do jg=1,ng
+            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
+&               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
-              do jg=1,ng
-                if (config%do_lw_aerosol_scattering) then
-                  ! In single precision we need to protect against the
-                  ! case that od_total > 0.0 and ssa_total > 0.0 but
-                  ! od_total*ssa_total == 0 due to underflow
-                  scat_od_total(jg) = ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
-                      &     + ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                      &     *  od_cloud_new(jg)
-                  ! where (scat_od_total(jg) > 0.0_jprb)
-                  !   g_total(jg,jcol) = (g(jg,jlev,jcol)*ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
-                  !       &     +   g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                  !       &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                  !       &     *  od_cloud_new(jg)) &
-                  !       &     / scat_od_total(jg)
-                  ! end where                
-                  ! where (od_total(jg,jcol) > 0.0_jprb)
-                  !   ssa_total(jg,jcol) = scat_od_total(jg) / od_total(jg,jcol)
-                  ! end where
-                else
-!                  do jg = 1,ng
-                    if (od_total(jg,jcol) > 0.0_jprb) then
-                      scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                          &     * od_cloud_new(jg)
-                      ssa_total(jg,jcol) = scat_od / od_total(jg,jcol)
-                      if (scat_od > 0.0_jprb) then
-                        g_total(jg,jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                            &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                            &     *  od_cloud_new(jg) / scat_od
-                      end if
+              if (config%do_lw_aerosol_scattering) then
+                ! In single precision we need to protect against the
+                ! case that od_total > 0.0 and ssa_total > 0.0 but
+                ! od_total*ssa_total == 0 due to underflow
+                scat_od_total(jg) = ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
+                    &     + ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                    &     *  od_cloud_new(jg)
+                ! where (scat_od_total(jg) > 0.0_jprb)
+                !   g_total(jg,jcol) = (g(jg,jlev,jcol)*ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
+                !       &     +   g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                !       &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                !       &     *  od_cloud_new(jg)) &
+                !       &     / scat_od_total(jg)
+                ! end where                
+                ! where (od_total(jg,jcol) > 0.0_jprb)
+                !   ssa_total(jg,jcol) = scat_od_total(jg) / od_total(jg,jcol)
+                ! end where
+              else
+  !                  do jg = 1,ng
+                  if (od_total(jg,jcol) > 0.0_jprb) then
+                    scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                        &     * od_cloud_new(jg)
+                    ssa_total(jg,jcol) = scat_od / od_total(jg,jcol)
+                    if (scat_od > 0.0_jprb) then
+                      g_total(jg,jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                          &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                          &     *  od_cloud_new(jg) / scat_od
                     end if
-                  !end do
-                end if
-              enddo
+                  end if
+                !end do
+              end if
+            endif
+          enddo
 
-              ! Compute cloudy-sky reflectance, transmittance etc at
-              ! each model level
-              call calc_two_stream_gammas_lw(ng, ssa_total(:,jcol), g_total(:,jcol), &
-                   &  gamma1(:,jcol), gamma2(:,jcol))
-              call calc_reflectance_transmittance_lw(ng, &
-                   &  od_total(:,jcol), gamma1(:,jcol), gamma2(:,jcol), &
-                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
-                   &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), &
-                   & source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
-            else
-              ! No-scattering case: use simpler functions for
-              ! transmission and emission
-              call calc_no_scattering_transmittance_lw(ng, od_total(:,jcol), &
-                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
-                   &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
-            end if
+          ! Compute cloudy-sky reflectance, transmittance etc at
+          ! each model level
+! cos: inlining the function due to the conditionals on the cloud cover
+!              call calc_two_stream_gammas_lw(ng, ssa_total(:,jcol), g_total(:,jcol), &
+!                   &  gamma1(:,jcol), gamma2(:,jcol))
+          do jg=1,ng
 
-          else
-            do jg=1,ng
-              ! Clear-sky layer: copy over clear-sky values
-              reflectance(jg,jlev,jcol) = ref_clear(jg,jlev, jcol)
-              transmittance(jg,jlev,jcol) = trans_clear(jg,jlev,jcol)
-              source_up(jg,jlev,jcol) = source_up_clear(jg,jlev,jcol)
-              source_dn(jg,jlev,jcol) = source_dn_clear(jg,jlev,jcol)
-            enddo
-          end if
-        end do
+            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
+&               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
+
+              ! Fu et al. (1997), Eq 2.9 and 2.10:
+              !      gamma1(jg) = LwDiffusivity * (1.0_jprb - 0.5_jprb*ssa(jg) &
+              !           &                    * (1.0_jprb + g(jg)))
+              !      gamma2(jg) = LwDiffusivity * 0.5_jprb * ssa(jg) &
+              !           &                    * (1.0_jprb - g(jg))
+              ! Reduce number of multiplications
+              factor = (LwDiffusivity * 0.5_jprb) * ssa_total(jg, jcol)
+              gamma1(jg,jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jg, jcol))
+              gamma2(jg,jcol) = factor * (1.0_jprb - g_total(jg,jcol))
+            endif
+          end do
+
+! cos: inlining the function due to the conditionals on the cloud cover
+!              call calc_reflectance_transmittance_lw(ng, &
+!                   &  od_total(:,jcol), gamma1(:,jcol), gamma2(:,jcol), &
+!                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
+!                   &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), &
+!                   & source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
+
+          do jg = 1, ng
+
+            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
+&               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
+
+              if (od_total(jg,jcol) > 1.0e-3_jprd) then
+                k_exponent = sqrt(max((gamma1(jg,jcol) - gamma2(jg,jcol)) * (gamma1(jg,jcol) + gamma2(jg,jcol)), &
+                      1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
+                exponential = exp_fast(-k_exponent*od_total(jg,jcol))
+                exponential2 = exponential*exponential
+                reftrans_factor = 1.0 / (k_exponent + gamma1(jg,jcol) + (k_exponent - gamma1(jg,jcol))*exponential2)
+                ! Meador & Weaver (1980) Eq. 25
+                reflectance(jg,jlev,jcol) = gamma2(jg,jcol) * (1.0_jprd - exponential2) * reftrans_factor
+                ! Meador & Weaver (1980) Eq. 26
+                transmittance(jg,jlev,jcol) = 2.0_jprd * k_exponent * exponential * reftrans_factor
+              
+                ! Compute upward and downward emission assuming the Planck
+                ! function to vary linearly with optical depth within the layer
+                ! (e.g. Wiscombe , JQSRT 1976).
+        
+                ! Stackhouse and Stephens (JAS 1991) Eqs 5 & 12
+                coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / & 
+                &       (od_total(jg,jcol)*(gamma1(jg,jcol)+gamma2(jg,jcol)))
+                coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
+                coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
+                coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
+                coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
+                source_up(jg,jlev,jcol) =  coeff_up_top - reflectance(jg,jlev,jcol) * coeff_dn_top - & 
+                &                     transmittance(jg,jlev,jcol) * coeff_up_bot
+                source_dn(jg,jlev,jcol) =  coeff_dn_bot - reflectance(jg,jlev,jcol) * coeff_up_bot - &
+                &                     transmittance(jg,jlev,jcol) * coeff_dn_top
+              else
+                k_exponent = sqrt(max((gamma1(jg,jcol) - gamma2(jg,jcol)) * (gamma1(jg,jcol) + gamma2(jg,jcol)), &
+                      1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
+                reflectance(jg,jlev,jcol) = gamma2(jg,jcol) * od_total(jg,jcol)
+                transmittance(jg,jlev,jcol) = (1.0_jprb - k_exponent*od_total(jg,jcol)) / (1.0_jprb + &
+                &                             od_total(jg,jcol)*(gamma1(jg,jcol)-k_exponent))
+                source_up(jg,jlev,jcol) = (1.0_jprb - reflectance(jg,jlev,jcol) - transmittance(jg,jlev,jcol)) &
+                      &       * 0.5 * (planck_hl(jg,jlev,jcol) + planck_hl(jg,jlev+1,jcol))
+                source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
+              end if
+            endif
+          end do      
+        else
+! cos: inlining the function due to the conditionals on the cloud cover
+
+          ! No-scattering case: use simpler functions for
+          ! transmission and emission
+!              call calc_no_scattering_transmittance_lw(ng, od_total(:,jcol), &
+!                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
+!                   &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
+
+          do jg = 1, ng
+            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. & 
+&             (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
+
+              ! Compute upward and downward emission assuming the Planck
+              ! function to vary linearly with optical depth within the layer
+              ! (e.g. Wiscombe , JQSRT 1976).
+              if (od_total(jg,jcol) > 1.0e-3) then
+                ! Simplified from calc_reflectance_transmittance_lw above
+                coeff = LwDiffusivity*od_total(jg,jcol)
+                transmittance(jg,jlev,jcol) = exp_fast(-coeff)
+                coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / coeff
+                coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
+                coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
+                coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
+                coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
+                source_up(jg,jlev,jcol) =  coeff_up_top - transmittance(jg,jlev,jcol) * coeff_up_bot
+                source_dn(jg,jlev,jcol) =  coeff_dn_bot - transmittance(jg,jlev,jcol) * coeff_dn_top
+              else
+                ! Linear limit at low optical depth
+                coeff = LwDiffusivity*od_total(jg,jcol)
+                transmittance(jg,jlev,jcol) = 1.0_jprb - coeff
+                source_up(jg,jlev,jcol) = coeff * 0.5_jprb * (planck_hl(jg,jlev,jcol)+planck_hl(jg,jlev+1,jcol))
+                source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
+              end if
+            endif
+          end do      
+        end if
+
+        do jg=1,ng
+
+          if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
+&           (cloud%fraction(jcol,jlev) < config%cloud_fraction_threshold)) then
+
+            ! Clear-sky layer: copy over clear-sky values
+            reflectance(jg,jlev,jcol) = ref_clear(jg,jlev, jcol)
+            transmittance(jg,jlev,jcol) = trans_clear(jg,jlev,jcol)
+            source_up(jg,jlev,jcol) = source_up_clear(jg,jlev,jcol)
+            source_dn(jg,jlev,jcol) = source_dn_clear(jg,jlev,jcol)
+          endif
+        enddo
+      end do
 !cos split        
-      endif
     enddo
 
     do jcol = istartcol,iendcol
