@@ -286,13 +286,12 @@ contains
       enddo
     enddo
 
-    do jcol = istartcol,iendcol
+    do jg=1,ng
       do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
           ! Scattering case: calculate reflectance and
           ! transmittance at each model level
-
-          do jg=1,ng
+          do jcol = istartcol,iendcol
             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
@@ -329,7 +328,14 @@ contains
               end if
             endif
           enddo
+        endif
+      enddo
+    enddo
 
+    do jcol = istartcol,iendcol
+      do jlev = 1,nlev
+        if (config%do_lw_cloud_scattering) then
+      
           ! Compute cloudy-sky reflectance, transmittance etc at
           ! each model level
 ! cos: inlining the function due to the conditionals on the cloud cover
