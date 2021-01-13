@@ -332,7 +332,7 @@ contains
       enddo
     enddo
 
-    do jcol = istartcol,iendcol
+    do jg = 1, ng
       do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
       
@@ -341,8 +341,7 @@ contains
 ! cos: inlining the function due to the conditionals on the cloud cover
 !              call calc_two_stream_gammas_lw(ng, ssa_total(:,jcol), g_total(:,jcol), &
 !                   &  gamma1(:,jcol), gamma2(:,jcol))
-          do jg=1,ng
-
+          do jcol = istartcol,iendcol
             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
@@ -356,7 +355,6 @@ contains
               gamma1(jg,jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jg,jlev,jcol))
               gamma2(jg,jcol) = factor * (1.0_jprb - g_total(jg,jlev,jcol))
             endif
-          end do
 
 ! cos: inlining the function due to the conditionals on the cloud cover
 !              call calc_reflectance_transmittance_lw(ng, &
@@ -364,8 +362,6 @@ contains
 !                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
 !                   &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), &
 !                   & source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
-
-          do jg = 1, ng
 
             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
@@ -407,7 +403,15 @@ contains
                 source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
               end if
             endif
-          end do      
+          end do
+        endif
+      enddo
+    enddo
+
+    do jcol = istartcol,iendcol
+      do jlev = 1,nlev
+        if (config%do_lw_cloud_scattering) then
+      
         else
 ! cos: inlining the function due to the conditionals on the cloud cover
 
