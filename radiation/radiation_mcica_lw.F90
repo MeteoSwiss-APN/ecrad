@@ -408,7 +408,7 @@ contains
       enddo
     enddo
 
-    do jcol = istartcol,iendcol
+    do jg = 1, ng
       do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
       
@@ -421,7 +421,7 @@ contains
 !                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
 !                   &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
 
-          do jg = 1, ng
+          do jcol = istartcol,iendcol
             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. & 
 &             (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
@@ -450,7 +450,7 @@ contains
           end do      
         end if
 
-        do jg=1,ng
+        do jcol = istartcol,iendcol
 
           if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &           (cloud%fraction(jcol,jlev) < config%cloud_fraction_threshold)) then
