@@ -475,6 +475,14 @@ contains
           ! allowing for scattering in all layers
           call adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
                & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
+        endif
+      endif
+    enddo
+
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+!cos end split
+        if (config%do_lw_aerosol_scattering) then
         else if (config%do_lw_cloud_scattering) then
           ! Use adding method to compute fluxes but optimize for the
           ! presence of clear-sky layers
