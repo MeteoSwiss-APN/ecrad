@@ -493,6 +493,15 @@ contains
            call fast_adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
                 & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer(:,jcol), i_cloud_top(jcol), &
                 & flux_dn_clear(:,:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
+        endif
+      endif
+    enddo
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+!cos end split
+        if (config%do_lw_aerosol_scattering) then
+        else if (config%do_lw_cloud_scattering) then
+
         else
           ! Simpler down-then-up method to compute fluxes
           call calc_fluxes_no_scattering_lw(ng, nlev, &
