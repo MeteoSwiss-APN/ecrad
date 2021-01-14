@@ -369,6 +369,149 @@ end subroutine adding_ica_lw_lr
 
   end subroutine fast_adding_ica_lw
 
+    !---------------------------------------------------------------------
+  ! Use the scalar "adding" method to compute longwave flux profiles,
+  ! including scattering in cloudy layers only.
+  subroutine fast_adding_ica_lw_lr(istartcol,iendcol, nlev, &
+    &  reflectance, transmittance, source_up, source_dn, emission_surf, albedo_surf, &
+    &  is_clear_sky_layer, i_cloud_top, flux_dn_clear, &
+    &  flux_up, flux_dn)
+
+ use parkind1, only           : jprb
+ use yomhook,  only           : lhook, dr_hook
+
+ implicit none
+
+ ! Inputs
+ integer, intent(in) :: istartcol,iendcol ! number of columns (may be spectral intervals)
+ integer, intent(in) :: nlev ! number of levels
+
+ ! Surface emission (W m-2) and albedo
+ real(jprb), intent(in),  dimension(istartcol:iendcol) :: emission_surf, albedo_surf
+
+ ! Diffuse reflectance and transmittance of each layer
+ real(jprb), intent(in),  dimension(nlev,istartcol:iendcol)   :: reflectance, transmittance
+
+ ! Emission from each layer in an upward and downward direction
+ real(jprb), intent(in),  dimension(nlev,istartcol:iendcol)   :: source_up, source_dn
+
+ ! Determine which layers are cloud-free
+ logical, intent(in) :: is_clear_sky_layer(nlev,istartcol:iendcol)
+
+ ! Index to highest cloudy layer
+ integer, intent(in), dimension(istartcol:iendcol) :: i_cloud_top(istartcol:iendcol)
+
+ ! Pre-computed clear-sky downwelling fluxes (W m-2) at half-levels
+ real(jprb), intent(in), dimension(nlev+1,istartcol:iendcol)  :: flux_dn_clear
+
+ ! Resulting fluxes (W m-2) at half-levels: diffuse upwelling and
+ ! downwelling
+ real(jprb), intent(out), dimension(nlev+1,istartcol:iendcol) :: flux_up, flux_dn
+ 
+ ! Albedo of the entire earth/atmosphere system below each half
+ ! level
+ real(jprb), dimension(nlev+1,istartcol:iendcol) :: albedo
+
+ ! Upwelling radiation at each half-level due to emission below
+ ! that half-level (W m-2)
+ real(jprb), dimension(nlev+1,istartcol:iendcol) :: source
+
+ ! Equal to 1/(1-albedo*reflectance)
+ real(jprb), dimension(nlev,istartcol:iendcol)   :: inv_denominator
+
+ ! Loop index for model level and column
+ integer :: jlev, jcol
+
+ real(jprb) :: hook_handle
+
+ if (lhook) call dr_hook('radiation_adding_ica_lw:fast_adding_ica_lw_lr',0,hook_handle)
+
+ do jcol=istartcol,iendcol
+   ! Copy over downwelling fluxes above cloud from clear sky
+   flux_dn(1:i_cloud_top(jcol),jcol) = flux_dn_clear(1:i_cloud_top(jcol),jcol)
+ enddo
+
+ albedo(nlev+1,:) = albedo_surf
+ 
+ ! At the surface, the source is thermal emission
+ source(nlev+1,:) = emission_surf
+
+ ! Work back up through the atmosphere and compute the albedo of
+ ! the entire earth/atmosphere system below that half-level, and
+ ! also the "source", which is the upwelling flux due to emission
+ ! below that level
+ !do jlev = nlev,i_cloud_top,-1
+ do jlev = nlev,1,-1
+   do jcol = istartcol,iendcol
+     if(jlev < i_cloud_top(jcol)) then
+       exit
+     endif
+     if (is_clear_sky_layer(jlev,jcol)) then
+     ! Reflectance of this layer is zero, simplifying the expression
+       albedo(jlev,jcol) = transmittance(jlev,jcol)*transmittance(jlev,jcol)*albedo(jlev+1,jcol)
+       source(jlev,jcol) = source_up(jlev,jcol) &
+            &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
+            &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol))
+    else
+       ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
+       inv_denominator(jlev,jcol) = 1.0_jprb &
+            &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jlev,jcol))
+       ! Shonk & Hogan (2008) Eq 9, Petty (2006) Eq 13.81:
+       albedo(jlev,jcol) = reflectance(jlev,jcol) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
+            &  * albedo(jlev+1,jcol) * inv_denominator(jlev,jcol)
+       ! Shonk & Hogan (2008) Eq 11:
+       source(jlev,jcol) = source_up(jlev,jcol) &
+            &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
+            &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol)) &
+            &                   * inv_denominator(jlev,jcol)
+    endif
+  end do
+ end do
+
+ do jcol=istartcol,iendcol
+   ! Compute the fluxes above the highest cloud
+   flux_up(i_cloud_top(jcol),jcol) = source(i_cloud_top(jcol),jcol) &
+      &                 + albedo(i_cloud_top(jcol),jcol)*flux_dn(i_cloud_top(jcol),jcol)
+ enddo
+ !do jlev = i_cloud_top(jcol)-1,1,-1
+ ! cos: would it make sense to revert the jcol and jlev loops here
+ ! in this pattern to avoid the jcol conditional exit? performance wise need to test?
+ do jlev = nlev-1,1,-1
+   do jcol=istartcol,iendcol
+     if(jlev < i_cloud_top(jcol)) then
+       flux_up(jlev,jcol) = transmittance(jlev,jcol)*flux_up(jlev+1,jcol) + source_up(jlev,jcol)
+     endif
+   end do
+ enddo
+
+ ! Work back down through the atmosphere from cloud top computing
+ ! the fluxes at each half-level
+
+ !do jlev = i_cloud_top,nlev
+ do jlev = 1,nlev
+  do jcol=istartcol,iendcol
+   if (is_clear_sky_layer(jlev,jcol) .and. jlev >= i_cloud_top(jcol)) then
+       flux_dn(jlev+1,jcol) = transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
+            &               + source_dn(jlev,jcol)
+       flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
+            &               + source(jlev+1,jcol)
+   else
+       ! Shonk & Hogan (2008) Eq 14 (after simplification):
+       flux_dn(jlev+1,jcol) &
+            &  = (transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
+            &     + reflectance(jlev,jcol)*source(jlev+1,jcol) &
+            &     + source_dn(jlev,jcol)) * inv_denominator(jlev,jcol)
+       ! Shonk & Hogan (2008) Eq 12:
+       flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
+            &               + source(jlev+1,jcol)
+   end if
+  enddo
+ end do
+
+ if (lhook) call dr_hook('radiation_adding_ica_lw:fast_adding_ica_lw_lr',1,hook_handle)
+
+end subroutine fast_adding_ica_lw_lr
+
 
   !---------------------------------------------------------------------
   ! If there is no scattering then fluxes may be computed simply by
