@@ -63,7 +63,7 @@ contains
 #define exp_fast exp
 #endif
 
-    use radiation_adding_ica_lw, only  : adding_ica_lw, adding_ica_lw_lr, fast_adding_ica_lw, &
+    use radiation_adding_ica_lw, only  : adding_ica_lw, adding_ica_lw_lr, adding_ica_lw_cond_lr, fast_adding_ica_lw, &
          &                               fast_adding_ica_lw_lr, calc_fluxes_no_scattering_lw, &
          &                               calc_fluxes_no_scattering_lw_lr
     use radiation_lw_derivatives, only : calc_lw_derivatives_ica, modify_lw_derivatives_ica
@@ -467,14 +467,15 @@ contains
 !cos split        
     enddo
 
-    do jcol = istartcol,iendcol
+    do jg = 1,ng
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
 !cos end split
         if (config%do_lw_aerosol_scattering) then
           ! Use adding method to compute fluxes for an overcast sky,
           ! allowing for scattering in all layers
-          call adding_ica_lw(ng, nlev, reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
-               & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
+          call adding_ica_lw_cond_lr(istartcol, iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
+&          reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
+&          source_dn(jg,:,:), emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         endif
       endif
     enddo
