@@ -486,7 +486,7 @@ end subroutine adding_ica_lw_cond_lr
     !---------------------------------------------------------------------
   ! Use the scalar "adding" method to compute longwave flux profiles,
   ! including scattering in cloudy layers only.
-  subroutine fast_adding_ica_lw_lr(istartcol,iendcol, nlev, &
+  subroutine fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, cloud_fraction_threshold, &
     &  reflectance, transmittance, source_up, source_dn, emission_surf, albedo_surf, &
     &  is_clear_sky_layer, i_cloud_top, flux_dn_clear, &
     &  flux_up, flux_dn)
@@ -499,6 +499,8 @@ end subroutine adding_ica_lw_cond_lr
  ! Inputs
  integer, intent(in) :: istartcol,iendcol ! number of columns (may be spectral intervals)
  integer, intent(in) :: nlev ! number of levels
+ real(jprb), intent(in), dimension(istartcol:iendcol) :: total_cloud_cover
+ real(jprb), intent(in) :: cloud_fraction_threshold
 
  ! Surface emission (W m-2) and albedo
  real(jprb), intent(in),  dimension(istartcol:iendcol) :: emission_surf, albedo_surf
@@ -541,14 +543,19 @@ end subroutine adding_ica_lw_cond_lr
  if (lhook) call dr_hook('radiation_adding_ica_lw:fast_adding_ica_lw_lr',0,hook_handle)
 
  do jcol=istartcol,iendcol
+  if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
+
    ! Copy over downwelling fluxes above cloud from clear sky
-   flux_dn(1:i_cloud_top(jcol),jcol) = flux_dn_clear(1:i_cloud_top(jcol),jcol)
+     flux_dn(1:i_cloud_top(jcol),jcol) = flux_dn_clear(1:i_cloud_top(jcol),jcol)
+
+     albedo(nlev+1,jcol) = albedo_surf(jcol)
+ 
+     ! At the surface, the source is thermal emission
+     source(nlev+1,jcol) = emission_surf(jcol)
+    
+  endif
  enddo
 
- albedo(nlev+1,:) = albedo_surf
- 
- ! At the surface, the source is thermal emission
- source(nlev+1,:) = emission_surf
 
  ! Work back up through the atmosphere and compute the albedo of
  ! the entire earth/atmosphere system below that half-level, and
@@ -557,6 +564,8 @@ end subroutine adding_ica_lw_cond_lr
  !do jlev = nlev,i_cloud_top,-1
  do jlev = nlev,1,-1
    do jcol = istartcol,iendcol
+    if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
+
      if(jlev < i_cloud_top(jcol)) then
        exit
      endif
@@ -566,7 +575,7 @@ end subroutine adding_ica_lw_cond_lr
        source(jlev,jcol) = source_up(jlev,jcol) &
             &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
             &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol))
-    else
+     else
        ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
        inv_denominator(jlev,jcol) = 1.0_jprb &
             &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jlev,jcol))
@@ -578,23 +587,28 @@ end subroutine adding_ica_lw_cond_lr
             &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
             &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol)) &
             &                   * inv_denominator(jlev,jcol)
+     endif
     endif
   end do
  end do
 
  do jcol=istartcol,iendcol
+  if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
    ! Compute the fluxes above the highest cloud
    flux_up(i_cloud_top(jcol),jcol) = source(i_cloud_top(jcol),jcol) &
       &                 + albedo(i_cloud_top(jcol),jcol)*flux_dn(i_cloud_top(jcol),jcol)
+  endif
  enddo
  !do jlev = i_cloud_top(jcol)-1,1,-1
  ! cos: would it make sense to revert the jcol and jlev loops here
  ! in this pattern to avoid the jcol conditional exit? performance wise need to test?
  do jlev = nlev-1,1,-1
    do jcol=istartcol,iendcol
+    if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
      if(jlev < i_cloud_top(jcol)) then
        flux_up(jlev,jcol) = transmittance(jlev,jcol)*flux_up(jlev+1,jcol) + source_up(jlev,jcol)
      endif
+    endif
    end do
  enddo
 
@@ -604,6 +618,8 @@ end subroutine adding_ica_lw_cond_lr
  !do jlev = i_cloud_top,nlev
  do jlev = 1,nlev
   do jcol=istartcol,iendcol
+    if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
+
    if (is_clear_sky_layer(jlev,jcol) .and. jlev >= i_cloud_top(jcol)) then
        flux_dn(jlev+1,jcol) = transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
             &               + source_dn(jlev,jcol)
@@ -619,6 +635,7 @@ end subroutine adding_ica_lw_cond_lr
        flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
             &               + source(jlev+1,jcol)
    end if
+  endif
   enddo
  end do
 
