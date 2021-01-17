@@ -131,7 +131,8 @@ contains
     real(jprb) :: scat_od, scat_od_total
 
     ! Two-stream coefficients
-    ! cos: original (g). Future demote to (col)
+    ! cos: could be demoted to scalar if calc_two_stream_gammas_lw_lr and 
+    ! calc_reflectance_transmittance_lw_lr are fused in the same jloop 
     real(jprb), dimension(istartcol:iendcol) :: gamma1, gamma2 
 
     ! Optical depth scaling from the cloud generator, zero indicating
@@ -182,6 +183,41 @@ contains
 
     ng = config%n_g_lw
 
+
+          ! Do cloudy-sky calculation; add a prime number to the seed in
+      ! the longwave
+    call cloud_generator_lr(ng, istartcol, iendcol, nlev, config%i_overlap_scheme, &
+           &  single_level%iseed, &
+           &  config%cloud_fraction_threshold, &
+           &  cloud%fraction, cloud%overlap_param, &
+           &  config%cloud_inhom_decorr_scaling, cloud%fractional_std, &
+           &  config%pdf_sampler, od_scaling, total_cloud_cover, &
+           &  is_beta_overlap=config%use_beta_overlap)
+      
+    do jcol = istartcol, iendcol
+      ! Store total cloud cover
+      flux%cloud_cover_lw(jcol) = total_cloud_cover(jcol)      
+    enddo
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+        ! Total-sky calculation
+
+        is_clear_sky_layer(:,jcol) = .true.
+        i_cloud_top(jcol) = nlev+1
+        do jlev = 1,nlev
+          ! Compute combined gas+aerosol+cloud optical properties
+          if (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold) then
+            is_clear_sky_layer(jlev,jcol) = .false.
+            ! Get index to the first cloudy layer from the top
+            if (i_cloud_top(jcol) > jlev) then
+              i_cloud_top(jcol) = jlev
+            end if
+          endif
+        enddo
+      endif
+    enddo
+
+
     ! Loop through columns
     do jg = 1, ng
 
@@ -225,47 +261,6 @@ contains
         ref_clear = 0.0_jprb
       end if
     ! cos: todo once all fields are promoted to 3D
-    enddo
-    ! cos: array syntax once data layouts are compatible
-    do jcol = istartcol,iendcol
-
-      ! Sum over g-points to compute broadband fluxes
-      flux%lw_up_clear(jcol,:) = sum(flux_up_clear(:,:,jcol),1)
-      flux%lw_dn_clear(jcol,:) = sum(flux_dn_clear(:,:,jcol),1)
-      flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(:,nlev+1,jcol)
-    enddo
-
-      ! Do cloudy-sky calculation; add a prime number to the seed in
-      ! the longwave
-    call cloud_generator_lr(ng, istartcol, iendcol, nlev, config%i_overlap_scheme, &
-           &  single_level%iseed, &
-           &  config%cloud_fraction_threshold, &
-           &  cloud%fraction, cloud%overlap_param, &
-           &  config%cloud_inhom_decorr_scaling, cloud%fractional_std, &
-           &  config%pdf_sampler, od_scaling, total_cloud_cover, &
-           &  is_beta_overlap=config%use_beta_overlap)
-      
-    do jcol = istartcol, iendcol
-      ! Store total cloud cover
-      flux%cloud_cover_lw(jcol) = total_cloud_cover(jcol)      
-    enddo
-    do jcol = istartcol,iendcol
-      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
-        ! Total-sky calculation
-
-        is_clear_sky_layer(:,jcol) = .true.
-        i_cloud_top(jcol) = nlev+1
-        do jlev = 1,nlev
-          ! Compute combined gas+aerosol+cloud optical properties
-          if (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold) then
-            is_clear_sky_layer(jlev,jcol) = .false.
-            ! Get index to the first cloudy layer from the top
-            if (i_cloud_top(jcol) > jlev) then
-              i_cloud_top(jcol) = jlev
-            end if
-          endif
-        enddo
-      endif
     enddo
 
     do jg=1,ng
@@ -490,7 +485,14 @@ contains
     ! cos: here there are reductions on ng. Therefore we need to break the ng loop,
     ! and the storages can only be ng independent if the accumulation is performed in previous loops
 
+        ! cos: array syntax once data layouts are compatible
     do jcol = istartcol,iendcol
+
+      ! Sum over g-points to compute broadband fluxes
+      flux%lw_up_clear(jcol,:) = sum(flux_up_clear(:,:,jcol),1)
+      flux%lw_dn_clear(jcol,:) = sum(flux_dn_clear(:,:,jcol),1)
+      flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(:,nlev+1,jcol)
+
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
         
         ! Store overcast broadband fluxes
