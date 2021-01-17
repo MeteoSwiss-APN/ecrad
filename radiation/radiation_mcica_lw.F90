@@ -125,14 +125,10 @@ contains
 
     ! Combined gas+aerosol+cloud optical depth, single scattering
     ! albedo and asymmetry factor
-    ! cos: original (ng). Future demote to jcol
-    ! cos: temporarily add nlev for loop splitting
-    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: g_total
-
-    real(jprb), dimension(istartcol:iendcol) :: ssa_total, od_total
+    real(jprb), dimension(istartcol:iendcol) :: ssa_total, od_total, g_total
 
     ! Combined scattering optical depth
-    real(jprb) :: scat_od, scat_od_total(config%n_g_lw)
+    real(jprb) :: scat_od, scat_od_total
 
     ! Two-stream coefficients
     ! cos: original (g). Future demote to (col)
@@ -195,8 +191,8 @@ contains
         ! transmittance etc at each model level
         do jlev = 1,nlev
           ssa_total = ssa(jg,jlev,:)
-          g_total   = g(:,:,:)
-          call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total(:), g_total(jg,jlev,:), &
+          g_total   = g(jg,jlev,:)
+          call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total(:), g_total, &
                &  gamma1, gamma2)
           call calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
                &  od(jg,jlev,:), gamma1, gamma2, &
@@ -282,7 +278,7 @@ contains
                 &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
             od_total(jcol) = od(jg,jlev,jcol) + od_cloud_new(jg,jlev,jcol)
             ssa_total(jcol) = 0.0_jprb
-            g_total(jg,jlev,jcol)   = 0.0_jprb
+            g_total(jcol)   = 0.0_jprb
           endif
         enddo
 
@@ -297,18 +293,18 @@ contains
                 ! In single precision we need to protect against the
                 ! case that od_total > 0.0 and ssa_total > 0.0 but
                 ! od_total*ssa_total == 0 due to underflow
-                scat_od_total(jg) = ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
+                scat_od_total = ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
                     &     + ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                     &     *  od_cloud_new(jg,jlev,jcol)
-                if (scat_od_total(jg) > 0.0_jprb) then
-                   g_total(jg,jlev,jcol) = (g(jg,jlev,jcol)*ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
+                if (scat_od_total > 0.0_jprb) then
+                   g_total(jcol) = (g(jg,jlev,jcol)*ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
                        &     +   g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                        &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                        &     *  od_cloud_new(jg,jlev,jcol)) &
-                       &     / scat_od_total(jg)
+                       &     / scat_od_total
                 endif                
                 if (od_total(jcol) > 0.0_jprb) then
-                   ssa_total(jcol) = scat_od_total(jg) / od_total(jcol)
+                   ssa_total(jcol) = scat_od_total / od_total(jcol)
                 endif
               else
   !                  do jg = 1,ng
@@ -317,7 +313,7 @@ contains
                         &     * od_cloud_new(jg,jlev,jcol)
                     ssa_total(jcol) = scat_od / od_total(jcol)
                     if (scat_od > 0.0_jprb) then
-                      g_total(jg,jlev,jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
+                      g_total(jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                           &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                           &     *  od_cloud_new(jg,jlev,jcol) / scat_od
                     end if
@@ -346,8 +342,8 @@ contains
               !           &                    * (1.0_jprb - g(jg))
               ! Reduce number of multiplications
               factor = (LwDiffusivity * 0.5_jprb) * ssa_total(jcol)
-              gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jg,jlev,jcol))
-              gamma2(jcol) = factor * (1.0_jprb - g_total(jg,jlev,jcol))
+              gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jcol))
+              gamma2(jcol) = factor * (1.0_jprb - g_total(jcol))
             endif
 
 ! cos: inlining the function due to the conditionals on the cloud cover
