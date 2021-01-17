@@ -81,7 +81,6 @@ contains
 
   end subroutine calc_lw_derivatives_ica
 
-
   !---------------------------------------------------------------------
   ! Calculation for the Independent Column Approximation
   subroutine modify_lw_derivatives_ica(ng, nlev, icol, transmittance, &

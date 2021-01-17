@@ -407,9 +407,7 @@ contains
           end do
         endif
       enddo
-    enddo
 
-    do jg = 1, ng
       do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
       
@@ -464,12 +462,6 @@ contains
           endif
         enddo
       end do
-!cos split        
-    enddo
-
-    do jg = 1,ng
-     ! if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
-!cos end split
         if (config%do_lw_aerosol_scattering) then
           ! Use adding method to compute fluxes for an overcast sky,
           ! allowing for scattering in all layers
@@ -477,12 +469,6 @@ contains
 &          reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
 &          source_dn(jg,:,:), emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         endif
-    !  endif
-    enddo
-
-   do jg = 1,ng
-    !  do jcol = istartcol, iendcol
-      ! if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
 !cos end split
         if (config%do_lw_aerosol_scattering) then
         else if (config%do_lw_cloud_scattering) then
@@ -498,11 +484,6 @@ contains
                 & source_dn(jg,:,:), emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
                 & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         endif
-      ! endif
-    enddo
-
-    do jg = 1,ng
-!cos end split
         if (config%do_lw_aerosol_scattering) then
         else if (config%do_lw_cloud_scattering) then
 
@@ -519,9 +500,11 @@ contains
         end if
     enddo
 
+    ! cos: here there are reductions on ng. Therefore we need to break the ng loop,
+    ! and the storages can only be ng independent if the accumulation is performed in previous loops
+
     do jcol = istartcol,iendcol
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
-!cos end split
         
         ! Store overcast broadband fluxes
         flux%lw_up(jcol,:) = sum(flux_up(:,:,jcol),1)
@@ -537,24 +520,18 @@ contains
         flux%lw_dn_surf_g(:,jcol) = total_cloud_cover(jcol)*flux_dn(:,nlev+1,jcol) &
              &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_dn_surf_clear_g(:,jcol)
 
-      endif
-    enddo
-
-    do jcol = istartcol,iendcol
-      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
-
         ! Compute the longwave derivatives needed by Hogan and Bozzo
         ! (2015) approximate radiation update scheme
         if (config%do_lw_derivatives) then
           call calc_lw_derivatives_ica(ng, nlev, jcol, transmittance(:,:,jcol), flux_up(:,nlev+1,jcol), &
                &                       flux%lw_derivatives)
+
           if (total_cloud_cover(jcol) < 1.0_jprb - config%cloud_fraction_threshold) then
             ! Modify the existing derivative with the contribution from the clear sky
             call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear(:,:,jcol), flux_up_clear(:,nlev+1,jcol), &
                  &                         1.0_jprb-total_cloud_cover(jcol), flux%lw_derivatives)
           end if
         end if
-
       else
         ! No cloud in profile and clear-sky fluxes already
         ! calculated: copy them over
