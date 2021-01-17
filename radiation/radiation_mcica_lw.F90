@@ -285,9 +285,7 @@ contains
           endif
         enddo
       enddo
-    enddo
 
-    do jg=1,ng
       do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
           ! Scattering case: calculate reflectance and
@@ -331,9 +329,7 @@ contains
           enddo
         endif
       enddo
-    enddo
 
-    do jg = 1, ng
       do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
       
