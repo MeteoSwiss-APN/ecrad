@@ -501,8 +501,6 @@ contains
       ! endif
     enddo
 
-!    do jcol = istartcol,iendcol
-!      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
     do jg = 1,ng
 !cos end split
         if (config%do_lw_aerosol_scattering) then
@@ -519,9 +517,7 @@ contains
           &  flux_up(jg,:,:), flux_dn(jg,:,:))
 
         end if
-!      endif
     enddo
-
 
     do jcol = istartcol,iendcol
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
@@ -540,6 +536,12 @@ contains
         ! Store surface spectral downwelling fluxes
         flux%lw_dn_surf_g(:,jcol) = total_cloud_cover(jcol)*flux_dn(:,nlev+1,jcol) &
              &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_dn_surf_clear_g(:,jcol)
+
+      endif
+    enddo
+
+    do jcol = istartcol,iendcol
+      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
 
         ! Compute the longwave derivatives needed by Hogan and Bozzo
         ! (2015) approximate radiation update scheme
