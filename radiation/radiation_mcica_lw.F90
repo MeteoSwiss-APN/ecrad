@@ -217,7 +217,6 @@ contains
       endif
     enddo
 
-
     ! Loop through columns
     do jg = 1, ng
 
@@ -260,10 +259,7 @@ contains
         ! used in cloudy-sky case
         ref_clear = 0.0_jprb
       end if
-    ! cos: todo once all fields are promoted to 3D
-    enddo
 
-    do jg=1,ng
       do jlev = 1,nlev
         do jcol = istartcol,iendcol
         ! Compute combined gas+aerosol+cloud optical properties
@@ -388,11 +384,7 @@ contains
                 source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
               end if
             endif
-          end do
-        endif
-
-        if (config%do_lw_cloud_scattering) then
-      
+          end do      
         else
 ! cos: inlining the function due to the conditionals on the cloud cover
 
@@ -450,9 +442,6 @@ contains
           call adding_ica_lw_cond_lr(istartcol, iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
 &          reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
 &          source_dn(jg,:,:), emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
-        endif
-!cos end split
-        if (config%do_lw_aerosol_scattering) then
         else if (config%do_lw_cloud_scattering) then
           ! Use adding method to compute fluxes but optimize for the
           ! presence of clear-sky layers
@@ -465,10 +454,6 @@ contains
 &               reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
                 & source_dn(jg,:,:), emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
                 & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
-        endif
-        if (config%do_lw_aerosol_scattering) then
-        else if (config%do_lw_cloud_scattering) then
-
         else
           ! ! Simpler down-then-up method to compute fluxes
           ! call calc_fluxes_no_scattering_lw(ng, nlev, &
