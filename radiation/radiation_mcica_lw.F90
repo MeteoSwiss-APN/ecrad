@@ -283,9 +283,7 @@ contains
             g_total(jg,jlev,jcol)   = 0.0_jprb
           endif
         enddo
-      enddo
 
-      do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
           ! Scattering case: calculate reflectance and
           ! transmittance at each model level
@@ -327,9 +325,7 @@ contains
             endif
           enddo
         endif
-      enddo
 
-      do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
       
           ! Compute cloudy-sky reflectance, transmittance etc at
