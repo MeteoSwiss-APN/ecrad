@@ -107,14 +107,13 @@ contains
 
     ! Diffuse reflectance and transmittance for each layer in clear
     ! and all skies
-    ! cos: original (g, lev). Future demote to (col, lev)
     real(jprb), dimension(nlev, istartcol:iendcol) :: ref_clear, reflectance
-
+    ! cos: ng can not be demoted because of reductions
     real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: trans_clear, transmittance
 
     ! Emission by a layer into the upwelling or downwelling diffuse
     ! streams, in clear and all skies
-    ! cos: original (g, lev). Future demote to (col, lev)
+    ! cos: ng can not be demoted because of reductions
     real(jprb), dimension(nlev, istartcol:iendcol) :: source_up_clear, source_up, &
                                               source_dn_clear, source_dn
 
@@ -147,11 +146,9 @@ contains
     real(jprb), dimension(istartcol:iendcol) :: od_cloud_new
 
     ! Total cloud cover output from the cloud generator
-    ! cos: original (scalar). Future demote to (scalar) again
     real(jprb), dimension(istartcol:iendcol) :: total_cloud_cover
 
     ! Identify clear-sky layers
-    !cos : temporarily added jcol
     logical :: is_clear_sky_layer(nlev,istartcol:iendcol)
 
     ! Index of the highest cloudy layer
