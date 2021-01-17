@@ -284,10 +284,14 @@ real(jprb) :: hook_handle
 
 if (lhook) call dr_hook('radiation_adding_ica_lw:adding_ica_lw_cond_lr',0,hook_handle)
 
-albedo(nlev+1,:) = albedo_surf
+do jcol = istartcol,iendcol
+  if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
+    albedo(nlev+1,jcol) = albedo_surf(jcol)
 
-! At the surface, the source is thermal emission
-source(nlev+1,:) = emission_surf
+    ! At the surface, the source is thermal emission
+    source(nlev+1,jcol) = emission_surf(jcol)
+  endif
+enddo
 
 ! Work back up through the atmosphere and compute the albedo of
 ! the entire earth/atmosphere system below that half-level, and
@@ -515,7 +519,7 @@ end subroutine adding_ica_lw_cond_lr
  logical, intent(in) :: is_clear_sky_layer(nlev,istartcol:iendcol)
 
  ! Index to highest cloudy layer
- integer, intent(in), dimension(istartcol:iendcol) :: i_cloud_top(istartcol:iendcol)
+ integer, intent(in), dimension(istartcol:iendcol) :: i_cloud_top
 
  ! Pre-computed clear-sky downwelling fluxes (W m-2) at half-levels
  real(jprb), intent(in), dimension(nlev+1,istartcol:iendcol)  :: flux_dn_clear
@@ -544,7 +548,6 @@ end subroutine adding_ica_lw_cond_lr
 
  do jcol=istartcol,iendcol
   if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
-
    ! Copy over downwelling fluxes above cloud from clear sky
      flux_dn(1:i_cloud_top(jcol),jcol) = flux_dn_clear(1:i_cloud_top(jcol),jcol)
 
@@ -556,42 +559,42 @@ end subroutine adding_ica_lw_cond_lr
   endif
  enddo
 
-
  ! Work back up through the atmosphere and compute the albedo of
  ! the entire earth/atmosphere system below that half-level, and
  ! also the "source", which is the upwelling flux due to emission
  ! below that level
- !do jlev = nlev,i_cloud_top,-1
- do jlev = nlev,1,-1
+! do jlev = nlev,i_cloud_top,-1
+  do jlev = nlev,1,-1
    do jcol = istartcol,iendcol
     if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
 
-     if(jlev < i_cloud_top(jcol)) then
-       exit
-     endif
-     if (is_clear_sky_layer(jlev,jcol)) then
-     ! Reflectance of this layer is zero, simplifying the expression
-       albedo(jlev,jcol) = transmittance(jlev,jcol)*transmittance(jlev,jcol)*albedo(jlev+1,jcol)
-       source(jlev,jcol) = source_up(jlev,jcol) &
-            &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
-            &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol))
-     else
-       ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
-       inv_denominator(jlev,jcol) = 1.0_jprb &
-            &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jlev,jcol))
-       ! Shonk & Hogan (2008) Eq 9, Petty (2006) Eq 13.81:
-       albedo(jlev,jcol) = reflectance(jlev,jcol) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
-            &  * albedo(jlev+1,jcol) * inv_denominator(jlev,jcol)
-       ! Shonk & Hogan (2008) Eq 11:
-       source(jlev,jcol) = source_up(jlev,jcol) &
-            &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
-            &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol)) &
-            &                   * inv_denominator(jlev,jcol)
-     endif
+     if(jlev >= i_cloud_top(jcol)) then
+     
+        if (is_clear_sky_layer(jlev,jcol)) then
+        ! ! Reflectance of this layer is zero, simplifying the expression
+
+          albedo(jlev,jcol) = transmittance(jlev,jcol)*transmittance(jlev,jcol)*albedo(jlev+1,jcol)
+          source(jlev,jcol) = source_up(jlev,jcol) &
+                &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
+                &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol))
+        else
+          ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
+          inv_denominator(jlev,jcol) = 1.0_jprb &
+                &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jlev,jcol))
+          ! Shonk & Hogan (2008) Eq 9, Petty (2006) Eq 13.81:
+          albedo(jlev,jcol) = reflectance(jlev,jcol) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
+                &  * albedo(jlev+1,jcol) * inv_denominator(jlev,jcol)
+          ! Shonk & Hogan (2008) Eq 11:
+          source(jlev,jcol) = source_up(jlev,jcol) &
+                &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
+                &                    + albedo(jlev+1,jcol)*source_dn(jlev,jcol)) &
+                &                   * inv_denominator(jlev,jcol)
+        endif
+      endif
     endif
   end do
  end do
-
+ 
  do jcol=istartcol,iendcol
   if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
    ! Compute the fluxes above the highest cloud
@@ -618,9 +621,9 @@ end subroutine adding_ica_lw_cond_lr
  !do jlev = i_cloud_top,nlev
  do jlev = 1,nlev
   do jcol=istartcol,iendcol
-    if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
+    if ((total_cloud_cover(jcol) >= cloud_fraction_threshold) .and. jlev >= i_cloud_top(jcol)) then
 
-   if (is_clear_sky_layer(jlev,jcol) .and. jlev >= i_cloud_top(jcol)) then
+   if (is_clear_sky_layer(jlev,jcol)) then
        flux_dn(jlev+1,jcol) = transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
             &               + source_dn(jlev,jcol)
        flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &

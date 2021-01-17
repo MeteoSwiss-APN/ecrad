@@ -468,7 +468,7 @@ contains
     enddo
 
     do jg = 1,ng
-      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+     ! if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
 !cos end split
         if (config%do_lw_aerosol_scattering) then
           ! Use adding method to compute fluxes for an overcast sky,
@@ -477,28 +477,28 @@ contains
 &          reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
 &          source_dn(jg,:,:), emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         endif
-      endif
+    !  endif
     enddo
 
-!    do jg = 1,ng
-     do jcol = istartcol, iendcol
-      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+   do jg = 1,ng
+    !  do jcol = istartcol, iendcol
+      ! if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
 !cos end split
         if (config%do_lw_aerosol_scattering) then
         else if (config%do_lw_cloud_scattering) then
           ! Use adding method to compute fluxes but optimize for the
           ! presence of clear-sky layers
-                     call fast_adding_ica_lw(ng, nlev, &
-&               reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
-                & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer(:,jcol), i_cloud_top(jcol), &
-                & flux_dn_clear(:,:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
+!                      call fast_adding_ica_lw(ng, nlev, &
+! &               reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
+!                 & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer(:,jcol), i_cloud_top(jcol), &
+!                 & flux_dn_clear(:,:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
 
-!            call fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
-! &               reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
-!                 & source_dn(jg,:,:), emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
-!                 & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
+           call fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
+&               reflectance(jg,:,:), transmittance(jg,:,:), source_up(jg,:,:), &
+                & source_dn(jg,:,:), emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
+                & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         endif
-      endif
+      ! endif
     enddo
 
     do jcol = istartcol,iendcol
