@@ -65,7 +65,7 @@ contains
 
     use radiation_adding_ica_lw, only  : adding_ica_lw, adding_ica_lw_lr, adding_ica_lw_cond_lr, fast_adding_ica_lw, &
          &                               fast_adding_ica_lw_lr, calc_fluxes_no_scattering_lw, &
-         &                               calc_fluxes_no_scattering_lw_lr
+         &                               calc_fluxes_no_scattering_lw_lr, calc_fluxes_no_scattering_lw_cond_lr
     use radiation_lw_derivatives, only : calc_lw_derivatives_ica, modify_lw_derivatives_ica
     use radiation_cloud_generator, only: cloud_generator_lr
 
@@ -501,19 +501,25 @@ contains
       ! endif
     enddo
 
-    do jcol = istartcol,iendcol
-      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+!    do jcol = istartcol,iendcol
+!      if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
+    do jg = 1,ng
 !cos end split
         if (config%do_lw_aerosol_scattering) then
         else if (config%do_lw_cloud_scattering) then
 
         else
-          ! Simpler down-then-up method to compute fluxes
-          call calc_fluxes_no_scattering_lw(ng, nlev, &
-               &  transmittance(:,:,jcol), source_up(:,:,jcol), source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), &
-               &  flux_up(:,:,jcol), flux_dn(:,:,jcol))
+          ! ! Simpler down-then-up method to compute fluxes
+          ! call calc_fluxes_no_scattering_lw(ng, nlev, &
+          !      &  transmittance(:,:,jcol), source_up(:,:,jcol), source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), &
+          !      &  flux_up(:,:,jcol), flux_dn(:,:,jcol))
+                         ! Simpler down-then-up method to compute fluxes
+          call calc_fluxes_no_scattering_lw_cond_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
+          &  transmittance(jg,:,:), source_up(jg,:,:), source_dn(jg,:,:), emission(jg,:), albedo(jg,:), &
+          &  flux_up(jg,:,:), flux_dn(jg,:,:))
+
         end if
-      endif
+!      endif
     enddo
 
 
