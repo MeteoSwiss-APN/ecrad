@@ -118,8 +118,8 @@ contains
 
  integer, intent(in) :: istartcol, iendcol ! range of columns to process
  ! Sngle scattering albedo and asymmetry factor:
- real(jprb), intent(in),  dimension(:) :: ssa, g
- real(jprb), intent(out), dimension(:) :: gamma1, gamma2
+ real(jprb), intent(in),  dimension(istartcol:iendcol) :: ssa, g
+ real(jprb), intent(out), dimension(istartcol:iendcol) :: gamma1, gamma2
 
  real(jprb) :: factor
 
