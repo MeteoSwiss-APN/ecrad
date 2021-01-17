@@ -108,8 +108,9 @@ contains
     ! Diffuse reflectance and transmittance for each layer in clear
     ! and all skies
     ! cos: original (g, lev). Future demote to (col, lev)
-    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: ref_clear, reflectance, &
-                                              trans_clear, transmittance
+    real(jprb), dimension(nlev, istartcol:iendcol) :: ref_clear, reflectance
+
+    real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: trans_clear, transmittance
 
     ! Emission by a layer into the upwelling or downwelling diffuse
     ! streams, in clear and all skies
@@ -232,12 +233,12 @@ contains
           call calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
                &  od(jg,jlev,:), gamma1, gamma2, &
                &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
-               &  ref_clear(jg,jlev,:), trans_clear(jg,jlev,:), &
+               &  ref_clear(jlev,:), trans_clear(jg,jlev,:), &
                &  source_up_clear(jlev,:), source_dn_clear(jlev,:))
         end do
         ! Then use adding method to compute fluxes
         call adding_ica_lw_lr(istartcol, iendcol, nlev, &
-             &  ref_clear(jg,:,:), trans_clear(jg,:,:), source_up_clear, source_dn_clear, &
+             &  ref_clear, trans_clear(jg,:,:), source_up_clear, source_dn_clear, &
              &  emission(jg,:), albedo(jg,:), &
              &  flux_up_clear(jg,:,:), flux_dn_clear(jg,:,:))
         
@@ -354,7 +355,7 @@ contains
                 exponential2 = exponential*exponential
                 reftrans_factor = 1.0 / (k_exponent + gamma1(jcol) + (k_exponent - gamma1(jcol))*exponential2)
                 ! Meador & Weaver (1980) Eq. 25
-                reflectance(jg,jlev,jcol) = gamma2(jcol) * (1.0_jprd - exponential2) * reftrans_factor
+                reflectance(jlev,jcol) = gamma2(jcol) * (1.0_jprd - exponential2) * reftrans_factor
                 ! Meador & Weaver (1980) Eq. 26
                 transmittance(jg,jlev,jcol) = 2.0_jprd * k_exponent * exponential * reftrans_factor
               
@@ -369,17 +370,17 @@ contains
                 coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
                 coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
                 coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
-                source_up(jlev,jcol) =  coeff_up_top - reflectance(jg,jlev,jcol) * coeff_dn_top - & 
+                source_up(jlev,jcol) =  coeff_up_top - reflectance(jlev,jcol) * coeff_dn_top - & 
                 &                     transmittance(jg,jlev,jcol) * coeff_up_bot
-                source_dn(jlev,jcol) =  coeff_dn_bot - reflectance(jg,jlev,jcol) * coeff_up_bot - &
+                source_dn(jlev,jcol) =  coeff_dn_bot - reflectance(jlev,jcol) * coeff_up_bot - &
                 &                     transmittance(jg,jlev,jcol) * coeff_dn_top
               else
                 k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
                       1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
-                reflectance(jg,jlev,jcol) = gamma2(jcol) * od_total(jcol)
+                reflectance(jlev,jcol) = gamma2(jcol) * od_total(jcol)
                 transmittance(jg,jlev,jcol) = (1.0_jprb - k_exponent*od_total(jcol)) / (1.0_jprb + &
                 &                             od_total(jcol)*(gamma1(jcol)-k_exponent))
-                source_up(jlev,jcol) = (1.0_jprb - reflectance(jg,jlev,jcol) - transmittance(jg,jlev,jcol)) &
+                source_up(jlev,jcol) = (1.0_jprb - reflectance(jlev,jcol) - transmittance(jg,jlev,jcol)) &
                       &       * 0.5 * (planck_hl(jg,jlev,jcol) + planck_hl(jg,jlev+1,jcol))
                 source_dn(jlev,jcol) = source_up(jlev,jcol)
               end if
@@ -429,7 +430,7 @@ contains
 &           (cloud%fraction(jcol,jlev) < config%cloud_fraction_threshold)) then
 
             ! Clear-sky layer: copy over clear-sky values
-            reflectance(jg,jlev,jcol) = ref_clear(jg,jlev, jcol)
+            reflectance(jlev,jcol) = ref_clear(jlev, jcol)
             transmittance(jg,jlev,jcol) = trans_clear(jg,jlev,jcol)
             source_up(jlev,jcol) = source_up_clear(jlev,jcol)
             source_dn(jlev,jcol) = source_dn_clear(jlev,jcol)
@@ -440,7 +441,7 @@ contains
           ! Use adding method to compute fluxes for an overcast sky,
           ! allowing for scattering in all layers
           call adding_ica_lw_cond_lr(istartcol, iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
-&          reflectance(jg,:,:), transmittance(jg,:,:), source_up, &
+&          reflectance, transmittance(jg,:,:), source_up, &
 &          source_dn, emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         else if (config%do_lw_cloud_scattering) then
           ! Use adding method to compute fluxes but optimize for the
@@ -451,7 +452,7 @@ contains
 !                 & flux_dn_clear(:,:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
 
            call fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
-&               reflectance(jg,:,:), transmittance(jg,:,:), source_up, &
+&               reflectance, transmittance(jg,:,:), source_up, &
                 & source_dn, emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
                 & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
         else
