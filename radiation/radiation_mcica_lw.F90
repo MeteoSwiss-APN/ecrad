@@ -119,9 +119,9 @@ contains
                                               source_dn_clear, source_dn
 
     ! Fluxes per g point
-    ! cos: temporarily promote to jcol
+    ! cos: ng can not be demoted because of reductions
     real(jprb), dimension(config%n_g_lw, nlev+1,istartcol:iendcol) :: flux_up, flux_dn
-    ! cos: original (g, lev). Future demote to (col, lev)
+    ! cos: ng can not be demoted because of reductions
     real(jprb), dimension(config%n_g_lw, nlev+1, istartcol:iendcol) :: flux_up_clear, flux_dn_clear
 
     ! Combined gas+aerosol+cloud optical depth, single scattering
@@ -138,13 +138,13 @@ contains
 
     ! Optical depth scaling from the cloud generator, zero indicating
     ! clear skies
-    ! cos; original (g, nlev), Future demote to (jcol, nlev)
+    ! cos; (ng) can be demoted, but required moving the last ng loop of cloud_generator out and fuse it
     real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_scaling
 
     ! Modified optical depth after McICA scaling to represent cloud
     ! inhomogeneity
     ! cos: temporarily added jcol & nlev for loop splitting
-    real(jprb), dimension(config%n_g_lw, nlev,istartcol:iendcol) :: od_cloud_new
+    real(jprb), dimension(istartcol:iendcol) :: od_cloud_new
 
     ! Total cloud cover output from the cloud generator
     ! cos: original (scalar). Future demote to (scalar) again
@@ -266,9 +266,9 @@ contains
         ! Compute combined gas+aerosol+cloud optical properties
           if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
-            od_cloud_new(jg,jlev,jcol) = od_scaling(jg,jlev, jcol) &
+            od_cloud_new(jcol) = od_scaling(jg,jlev, jcol) &
                 &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
-            od_total(jcol) = od(jg,jlev,jcol) + od_cloud_new(jg,jlev,jcol)
+            od_total(jcol) = od(jg,jlev,jcol) + od_cloud_new(jcol)
             ssa_total(jcol) = 0.0_jprb
             g_total(jcol)   = 0.0_jprb
           endif
@@ -287,12 +287,12 @@ contains
                 ! od_total*ssa_total == 0 due to underflow
                 scat_od_total = ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
                     &     + ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                    &     *  od_cloud_new(jg,jlev,jcol)
+                    &     *  od_cloud_new(jcol)
                 if (scat_od_total > 0.0_jprb) then
                    g_total(jcol) = (g(jg,jlev,jcol)*ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
                        &     +   g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                        &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                       &     *  od_cloud_new(jg,jlev,jcol)) &
+                       &     *  od_cloud_new(jcol)) &
                        &     / scat_od_total
                 endif                
                 if (od_total(jcol) > 0.0_jprb) then
@@ -302,12 +302,12 @@ contains
   !                  do jg = 1,ng
                   if (od_total(jcol) > 0.0_jprb) then
                     scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                        &     * od_cloud_new(jg,jlev,jcol)
+                        &     * od_cloud_new(jcol)
                     ssa_total(jcol) = scat_od / od_total(jcol)
                     if (scat_od > 0.0_jprb) then
                       g_total(jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                           &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
-                          &     *  od_cloud_new(jg,jlev,jcol) / scat_od
+                          &     *  od_cloud_new(jcol) / scat_od
                     end if
                   end if
                 !end do
