@@ -127,7 +127,9 @@ contains
     ! albedo and asymmetry factor
     ! cos: original (ng). Future demote to jcol
     ! cos: temporarily add nlev for loop splitting
-    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_total, ssa_total, g_total
+    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_total, g_total
+
+    real(jprb), dimension(istartcol:iendcol) :: ssa_total
 
     ! Combined scattering optical depth
     real(jprb) :: scat_od, scat_od_total(config%n_g_lw)
@@ -192,9 +194,9 @@ contains
         ! Scattering case: first compute clear-sky reflectance,
         ! transmittance etc at each model level
         do jlev = 1,nlev
-          ssa_total = ssa(:,:,:)
+          ssa_total = ssa(jg,jlev,:)
           g_total   = g(:,:,:)
-          call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total(jg,jlev,:), g_total(jg,jlev,:), &
+          call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total(:), g_total(jg,jlev,:), &
                &  gamma1, gamma2)
           call calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
                &  od(jg,jlev,:), gamma1, gamma2, &
@@ -279,7 +281,7 @@ contains
             od_cloud_new(jg,jlev,jcol) = od_scaling(jg,jlev, jcol) &
                 &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
             od_total(jg,jlev,jcol) = od(jg,jlev,jcol) + od_cloud_new(jg,jlev,jcol)
-            ssa_total(jg,jlev,jcol) = 0.0_jprb
+            ssa_total(jcol) = 0.0_jprb
             g_total(jg,jlev,jcol)   = 0.0_jprb
           endif
         enddo
@@ -306,14 +308,14 @@ contains
                        &     / scat_od_total(jg)
                 endif                
                 if (od_total(jg,jlev,jcol) > 0.0_jprb) then
-                   ssa_total(jg,jlev,jcol) = scat_od_total(jg) / od_total(jg,jlev,jcol)
+                   ssa_total(jcol) = scat_od_total(jg) / od_total(jg,jlev,jcol)
                 endif
               else
   !                  do jg = 1,ng
                   if (od_total(jg,jlev,jcol) > 0.0_jprb) then
                     scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                         &     * od_cloud_new(jg,jlev,jcol)
-                    ssa_total(jg,jlev,jcol) = scat_od / od_total(jg,jlev,jcol)
+                    ssa_total(jcol) = scat_od / od_total(jg,jlev,jcol)
                     if (scat_od > 0.0_jprb) then
                       g_total(jg,jlev,jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                           &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
@@ -343,7 +345,7 @@ contains
               !      gamma2(jg) = LwDiffusivity * 0.5_jprb * ssa(jg) &
               !           &                    * (1.0_jprb - g(jg))
               ! Reduce number of multiplications
-              factor = (LwDiffusivity * 0.5_jprb) * ssa_total(jg,jlev,jcol)
+              factor = (LwDiffusivity * 0.5_jprb) * ssa_total(jcol)
               gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jg,jlev,jcol))
               gamma2(jcol) = factor * (1.0_jprb - g_total(jg,jlev,jcol))
             endif
