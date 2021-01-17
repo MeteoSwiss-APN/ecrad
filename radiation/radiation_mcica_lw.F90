@@ -127,9 +127,9 @@ contains
     ! albedo and asymmetry factor
     ! cos: original (ng). Future demote to jcol
     ! cos: temporarily add nlev for loop splitting
-    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_total, g_total
+    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: g_total
 
-    real(jprb), dimension(istartcol:iendcol) :: ssa_total
+    real(jprb), dimension(istartcol:iendcol) :: ssa_total, od_total
 
     ! Combined scattering optical depth
     real(jprb) :: scat_od, scat_od_total(config%n_g_lw)
@@ -280,7 +280,7 @@ contains
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
             od_cloud_new(jg,jlev,jcol) = od_scaling(jg,jlev, jcol) &
                 &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
-            od_total(jg,jlev,jcol) = od(jg,jlev,jcol) + od_cloud_new(jg,jlev,jcol)
+            od_total(jcol) = od(jg,jlev,jcol) + od_cloud_new(jg,jlev,jcol)
             ssa_total(jcol) = 0.0_jprb
             g_total(jg,jlev,jcol)   = 0.0_jprb
           endif
@@ -307,15 +307,15 @@ contains
                        &     *  od_cloud_new(jg,jlev,jcol)) &
                        &     / scat_od_total(jg)
                 endif                
-                if (od_total(jg,jlev,jcol) > 0.0_jprb) then
-                   ssa_total(jcol) = scat_od_total(jg) / od_total(jg,jlev,jcol)
+                if (od_total(jcol) > 0.0_jprb) then
+                   ssa_total(jcol) = scat_od_total(jg) / od_total(jcol)
                 endif
               else
   !                  do jg = 1,ng
-                  if (od_total(jg,jlev,jcol) > 0.0_jprb) then
+                  if (od_total(jcol) > 0.0_jprb) then
                     scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                         &     * od_cloud_new(jg,jlev,jcol)
-                    ssa_total(jcol) = scat_od / od_total(jg,jlev,jcol)
+                    ssa_total(jcol) = scat_od / od_total(jcol)
                     if (scat_od > 0.0_jprb) then
                       g_total(jg,jlev,jcol) = g_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                           &     * ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
@@ -360,10 +360,10 @@ contains
             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
-              if (od_total(jg,jlev,jcol) > 1.0e-3_jprd) then
+              if (od_total(jcol) > 1.0e-3_jprd) then
                 k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
                       1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
-                exponential = exp_fast(-k_exponent*od_total(jg,jlev,jcol))
+                exponential = exp_fast(-k_exponent*od_total(jcol))
                 exponential2 = exponential*exponential
                 reftrans_factor = 1.0 / (k_exponent + gamma1(jcol) + (k_exponent - gamma1(jcol))*exponential2)
                 ! Meador & Weaver (1980) Eq. 25
@@ -377,7 +377,7 @@ contains
         
                 ! Stackhouse and Stephens (JAS 1991) Eqs 5 & 12
                 coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / & 
-                &       (od_total(jg,jlev,jcol)*(gamma1(jcol)+gamma2(jcol)))
+                &       (od_total(jcol)*(gamma1(jcol)+gamma2(jcol)))
                 coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
                 coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
                 coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
@@ -389,9 +389,9 @@ contains
               else
                 k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
                       1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
-                reflectance(jg,jlev,jcol) = gamma2(jcol) * od_total(jg,jlev,jcol)
-                transmittance(jg,jlev,jcol) = (1.0_jprb - k_exponent*od_total(jg,jlev,jcol)) / (1.0_jprb + &
-                &                             od_total(jg,jlev,jcol)*(gamma1(jcol)-k_exponent))
+                reflectance(jg,jlev,jcol) = gamma2(jcol) * od_total(jcol)
+                transmittance(jg,jlev,jcol) = (1.0_jprb - k_exponent*od_total(jcol)) / (1.0_jprb + &
+                &                             od_total(jcol)*(gamma1(jcol)-k_exponent))
                 source_up(jg,jlev,jcol) = (1.0_jprb - reflectance(jg,jlev,jcol) - transmittance(jg,jlev,jcol)) &
                       &       * 0.5 * (planck_hl(jg,jlev,jcol) + planck_hl(jg,jlev+1,jcol))
                 source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
@@ -399,9 +399,7 @@ contains
             endif
           end do
         endif
-      enddo
 
-      do jlev = 1,nlev
         if (config%do_lw_cloud_scattering) then
       
         else
@@ -420,9 +418,9 @@ contains
               ! Compute upward and downward emission assuming the Planck
               ! function to vary linearly with optical depth within the layer
               ! (e.g. Wiscombe , JQSRT 1976).
-              if (od_total(jg,jlev,jcol) > 1.0e-3) then
+              if (od_total(jcol) > 1.0e-3) then
                 ! Simplified from calc_reflectance_transmittance_lw above
-                coeff = LwDiffusivity*od_total(jg,jlev,jcol)
+                coeff = LwDiffusivity*od_total(jcol)
                 transmittance(jg,jlev,jcol) = exp_fast(-coeff)
                 coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / coeff
                 coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
@@ -433,7 +431,7 @@ contains
                 source_dn(jg,jlev,jcol) =  coeff_dn_bot - transmittance(jg,jlev,jcol) * coeff_dn_top
               else
                 ! Linear limit at low optical depth
-                coeff = LwDiffusivity*od_total(jg,jlev,jcol)
+                coeff = LwDiffusivity*od_total(jcol)
                 transmittance(jg,jlev,jcol) = 1.0_jprb - coeff
                 source_up(jg,jlev,jcol) = coeff * 0.5_jprb * (planck_hl(jg,jlev,jcol)+planck_hl(jg,jlev+1,jcol))
                 source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
