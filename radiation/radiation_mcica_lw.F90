@@ -134,7 +134,7 @@ contains
 
     ! Two-stream coefficients
     ! cos: original (g). Future demote to (col)
-    real(jprb), dimension(config%n_g_lw, istartcol:iendcol) :: gamma1, gamma2
+    real(jprb), dimension(istartcol:iendcol) :: gamma1, gamma2 
 
     ! Optical depth scaling from the cloud generator, zero indicating
     ! clear skies
@@ -186,7 +186,6 @@ contains
 
     ! Loop through columns
     do jg = 1, ng
-!    do jcol = istartcol,iendcol
 
       ! Clear-sky calculation
       if (config%do_lw_aerosol_scattering) then
@@ -196,9 +195,9 @@ contains
           ssa_total = ssa(:,:,:)
           g_total   = g(:,:,:)
           call calc_two_stream_gammas_lw_lr(istartcol, iendcol, ssa_total(jg,jlev,:), g_total(jg,jlev,:), &
-               &  gamma1(jg,:), gamma2(jg,:))
+               &  gamma1, gamma2)
           call calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
-               &  od(jg,jlev,:), gamma1(jg,:), gamma2(jg,:), &
+               &  od(jg,jlev,:), gamma1, gamma2, &
                &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
                &  ref_clear(jg,jlev,:), trans_clear(jg,jlev,:), &
                &  source_up_clear(jg,jlev,:), source_dn_clear(jg,jlev,:))
@@ -349,8 +348,8 @@ contains
               !           &                    * (1.0_jprb - g(jg))
               ! Reduce number of multiplications
               factor = (LwDiffusivity * 0.5_jprb) * ssa_total(jg,jlev,jcol)
-              gamma1(jg,jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jg,jlev,jcol))
-              gamma2(jg,jcol) = factor * (1.0_jprb - g_total(jg,jlev,jcol))
+              gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jg,jlev,jcol))
+              gamma2(jcol) = factor * (1.0_jprb - g_total(jg,jlev,jcol))
             endif
 
 ! cos: inlining the function due to the conditionals on the cloud cover
@@ -364,13 +363,13 @@ contains
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
               if (od_total(jg,jlev,jcol) > 1.0e-3_jprd) then
-                k_exponent = sqrt(max((gamma1(jg,jcol) - gamma2(jg,jcol)) * (gamma1(jg,jcol) + gamma2(jg,jcol)), &
+                k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
                       1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
                 exponential = exp_fast(-k_exponent*od_total(jg,jlev,jcol))
                 exponential2 = exponential*exponential
-                reftrans_factor = 1.0 / (k_exponent + gamma1(jg,jcol) + (k_exponent - gamma1(jg,jcol))*exponential2)
+                reftrans_factor = 1.0 / (k_exponent + gamma1(jcol) + (k_exponent - gamma1(jcol))*exponential2)
                 ! Meador & Weaver (1980) Eq. 25
-                reflectance(jg,jlev,jcol) = gamma2(jg,jcol) * (1.0_jprd - exponential2) * reftrans_factor
+                reflectance(jg,jlev,jcol) = gamma2(jcol) * (1.0_jprd - exponential2) * reftrans_factor
                 ! Meador & Weaver (1980) Eq. 26
                 transmittance(jg,jlev,jcol) = 2.0_jprd * k_exponent * exponential * reftrans_factor
               
@@ -380,7 +379,7 @@ contains
         
                 ! Stackhouse and Stephens (JAS 1991) Eqs 5 & 12
                 coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / & 
-                &       (od_total(jg,jlev,jcol)*(gamma1(jg,jcol)+gamma2(jg,jcol)))
+                &       (od_total(jg,jlev,jcol)*(gamma1(jcol)+gamma2(jcol)))
                 coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
                 coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
                 coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
@@ -390,11 +389,11 @@ contains
                 source_dn(jg,jlev,jcol) =  coeff_dn_bot - reflectance(jg,jlev,jcol) * coeff_up_bot - &
                 &                     transmittance(jg,jlev,jcol) * coeff_dn_top
               else
-                k_exponent = sqrt(max((gamma1(jg,jcol) - gamma2(jg,jcol)) * (gamma1(jg,jcol) + gamma2(jg,jcol)), &
+                k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
                       1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
-                reflectance(jg,jlev,jcol) = gamma2(jg,jcol) * od_total(jg,jlev,jcol)
+                reflectance(jg,jlev,jcol) = gamma2(jcol) * od_total(jg,jlev,jcol)
                 transmittance(jg,jlev,jcol) = (1.0_jprb - k_exponent*od_total(jg,jlev,jcol)) / (1.0_jprb + &
-                &                             od_total(jg,jlev,jcol)*(gamma1(jg,jcol)-k_exponent))
+                &                             od_total(jg,jlev,jcol)*(gamma1(jcol)-k_exponent))
                 source_up(jg,jlev,jcol) = (1.0_jprb - reflectance(jg,jlev,jcol) - transmittance(jg,jlev,jcol)) &
                       &       * 0.5 * (planck_hl(jg,jlev,jcol) + planck_hl(jg,jlev+1,jcol))
                 source_dn(jg,jlev,jcol) = source_up(jg,jlev,jcol)
