@@ -56,6 +56,7 @@ contains
          &                               calc_reflectance_transmittance_lw_cond_lr, &
          &                               calc_no_scattering_transmittance_lw, &
          &                               calc_no_scattering_transmittance_lw_lr, &
+         &                               calc_no_scattering_transmittance_lw_cond_lr, &
 #ifdef FAST_EXPONENTIAL
          &                               exp_fast, &
 #endif
@@ -162,9 +163,6 @@ contains
 
     ! Loop indices for level, column and g point
     integer :: jlev, jcol, jg
-
-    real(jprd) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot
-    ! end cos
 
     real(jprb) :: hook_handle
 
@@ -324,37 +322,38 @@ contains
 
           ! No-scattering case: use simpler functions for
           ! transmission and emission
-!              call calc_no_scattering_transmittance_lw(ng, od_total(:,jcol), &
-!                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
-!                   &  transmittance(:,jlev,jcol), source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
+             call calc_no_scattering_transmittance_lw_cond_lr(istartcol, iendcol, &
+                  & total_cloud_cover, cloud%fraction(:,jlev), config%cloud_fraction_threshold, &
+                  & od_total, planck_hl(jg,jlev,:), planck_hl(jg,jlev+1, :), &
+                  &  transmittance(jg,jlev,:), source_up(jlev,:), source_dn(jlev,:))
 
-          do jcol = istartcol,iendcol
-            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. & 
-&             (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
+!           do jcol = istartcol,iendcol
+!             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. & 
+! &             (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
 
-              ! Compute upward and downward emission assuming the Planck
-              ! function to vary linearly with optical depth within the layer
-              ! (e.g. Wiscombe , JQSRT 1976).
-              if (od_total(jcol) > 1.0e-3) then
-                ! Simplified from calc_reflectance_transmittance_lw above
-                coeff = LwDiffusivity*od_total(jcol)
-                transmittance(jg,jlev,jcol) = exp_fast(-coeff)
-                coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / coeff
-                coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
-                coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
-                coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
-                coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
-                source_up(jlev,jcol) =  coeff_up_top - transmittance(jg,jlev,jcol) * coeff_up_bot
-                source_dn(jlev,jcol) =  coeff_dn_bot - transmittance(jg,jlev,jcol) * coeff_dn_top
-              else
-                ! Linear limit at low optical depth
-                coeff = LwDiffusivity*od_total(jcol)
-                transmittance(jg,jlev,jcol) = 1.0_jprb - coeff
-                source_up(jlev,jcol) = coeff * 0.5_jprb * (planck_hl(jg,jlev,jcol)+planck_hl(jg,jlev+1,jcol))
-                source_dn(jlev,jcol) = source_up(jlev,jcol)
-              end if
-            endif
-          end do      
+!               ! Compute upward and downward emission assuming the Planck
+!               ! function to vary linearly with optical depth within the layer
+!               ! (e.g. Wiscombe , JQSRT 1976).
+!               if (od_total(jcol) > 1.0e-3) then
+!                 ! Simplified from calc_reflectance_transmittance_lw above
+!                 coeff = LwDiffusivity*od_total(jcol)
+!                 transmittance(jg,jlev,jcol) = exp_fast(-coeff)
+!                 coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / coeff
+!                 coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
+!                 coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
+!                 coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
+!                 coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
+!                 source_up(jlev,jcol) =  coeff_up_top - transmittance(jg,jlev,jcol) * coeff_up_bot
+!                 source_dn(jlev,jcol) =  coeff_dn_bot - transmittance(jg,jlev,jcol) * coeff_dn_top
+!               else
+!                 ! Linear limit at low optical depth
+!                 coeff = LwDiffusivity*od_total(jcol)
+!                 transmittance(jg,jlev,jcol) = 1.0_jprb - coeff
+!                 source_up(jlev,jcol) = coeff * 0.5_jprb * (planck_hl(jg,jlev,jcol)+planck_hl(jg,jlev+1,jcol))
+!                 source_dn(jlev,jcol) = source_up(jlev,jcol)
+!               end if
+!             endif
+!           end do      
         end if
 
         do jcol = istartcol,iendcol
