@@ -318,42 +318,12 @@ contains
                   & source_up(jlev,:), source_dn(jlev,:))
 
         else
-! cos: inlining the function due to the conditionals on the cloud cover
-
           ! No-scattering case: use simpler functions for
           ! transmission and emission
              call calc_no_scattering_transmittance_lw_cond_lr(istartcol, iendcol, &
                   & total_cloud_cover, cloud%fraction(:,jlev), config%cloud_fraction_threshold, &
                   & od_total, planck_hl(jg,jlev,:), planck_hl(jg,jlev+1, :), &
                   &  transmittance(jg,jlev,:), source_up(jlev,:), source_dn(jlev,:))
-
-!           do jcol = istartcol,iendcol
-!             if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. & 
-! &             (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
-
-!               ! Compute upward and downward emission assuming the Planck
-!               ! function to vary linearly with optical depth within the layer
-!               ! (e.g. Wiscombe , JQSRT 1976).
-!               if (od_total(jcol) > 1.0e-3) then
-!                 ! Simplified from calc_reflectance_transmittance_lw above
-!                 coeff = LwDiffusivity*od_total(jcol)
-!                 transmittance(jg,jlev,jcol) = exp_fast(-coeff)
-!                 coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / coeff
-!                 coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
-!                 coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
-!                 coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
-!                 coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
-!                 source_up(jlev,jcol) =  coeff_up_top - transmittance(jg,jlev,jcol) * coeff_up_bot
-!                 source_dn(jlev,jcol) =  coeff_dn_bot - transmittance(jg,jlev,jcol) * coeff_dn_top
-!               else
-!                 ! Linear limit at low optical depth
-!                 coeff = LwDiffusivity*od_total(jcol)
-!                 transmittance(jg,jlev,jcol) = 1.0_jprb - coeff
-!                 source_up(jlev,jcol) = coeff * 0.5_jprb * (planck_hl(jg,jlev,jcol)+planck_hl(jg,jlev+1,jcol))
-!                 source_dn(jlev,jcol) = source_up(jlev,jcol)
-!               end if
-!             endif
-!           end do      
         end if
 
         do jcol = istartcol,iendcol
@@ -369,35 +339,35 @@ contains
           endif
         enddo
       end do
-        if (config%do_lw_aerosol_scattering) then
-          ! Use adding method to compute fluxes for an overcast sky,
-          ! allowing for scattering in all layers
-          call adding_ica_lw_cond_lr(istartcol, iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
+      if (config%do_lw_aerosol_scattering) then
+        ! Use adding method to compute fluxes for an overcast sky,
+        ! allowing for scattering in all layers
+        call adding_ica_lw_cond_lr(istartcol, iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
 &          reflectance, transmittance(jg,:,:), source_up, &
 &          source_dn, emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
-        else if (config%do_lw_cloud_scattering) then
-          ! Use adding method to compute fluxes but optimize for the
-          ! presence of clear-sky layers
+      else if (config%do_lw_cloud_scattering) then
+        ! Use adding method to compute fluxes but optimize for the
+        ! presence of clear-sky layers
 !                      call fast_adding_ica_lw(ng, nlev, &
 ! &               reflectance(:,:,jcol), transmittance(:,:,jcol), source_up(:,:,jcol), &
 !                 & source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), is_clear_sky_layer(:,jcol), i_cloud_top(jcol), &
 !                 & flux_dn_clear(:,:,jcol), flux_up(:,:,jcol), flux_dn(:,:,jcol))
 
-           call fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
+          call fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
 &               reflectance, transmittance(jg,:,:), source_up, &
-                & source_dn, emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
-                & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
-        else
-          ! ! Simpler down-then-up method to compute fluxes
-          ! call calc_fluxes_no_scattering_lw(ng, nlev, &
-          !      &  transmittance(:,:,jcol), source_up(:,:,jcol), source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), &
-          !      &  flux_up(:,:,jcol), flux_dn(:,:,jcol))
-                         ! Simpler down-then-up method to compute fluxes
-          call calc_fluxes_no_scattering_lw_cond_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
-          &  transmittance(jg,:,:), source_up, source_dn, emission(jg,:), albedo(jg,:), &
-          &  flux_up(jg,:,:), flux_dn(jg,:,:))
+              & source_dn, emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
+              & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
+      else
+        ! ! Simpler down-then-up method to compute fluxes
+        ! call calc_fluxes_no_scattering_lw(ng, nlev, &
+        !      &  transmittance(:,:,jcol), source_up(:,:,jcol), source_dn(:,:,jcol), emission(:,jcol), albedo(:,jcol), &
+        !      &  flux_up(:,:,jcol), flux_dn(:,:,jcol))
+                        ! Simpler down-then-up method to compute fluxes
+        call calc_fluxes_no_scattering_lw_cond_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
+        &  transmittance(jg,:,:), source_up, source_dn, emission(jg,:), albedo(jg,:), &
+        &  flux_up(jg,:,:), flux_dn(jg,:,:))
 
-        end if
+      end if
     enddo
 
     ! cos: here there are reductions on ng. Therefore we need to break the ng loop,
