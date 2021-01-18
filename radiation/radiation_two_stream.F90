@@ -429,6 +429,99 @@ end subroutine calc_two_stream_gammas_lw_cond_lr
 
 end subroutine calc_reflectance_transmittance_lw_lr
 
+subroutine calc_reflectance_transmittance_lw_cond_lr(istartcol, iendcol, &
+  &    total_cloud_cover, cloud_fraction, cloud_fraction_threshold, od,  &
+  &    gamma1, gamma2, planck_top, planck_bot, &
+  &    reflectance, transmittance, source_up, source_dn)
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+use yomhook, only : lhook, dr_hook
+#endif
+
+integer, intent(in) :: istartcol, iendcol
+real(jprb), intent(in), dimension(istartcol:iendcol) :: total_cloud_cover
+real(jprb), intent(in), dimension(:) :: cloud_fraction 
+real(jprb), intent(in) :: cloud_fraction_threshold
+
+! Optical depth and single scattering albedo
+real(jprb), intent(in), dimension(istartcol:iendcol) :: od
+
+! The two transfer coefficients from the two-stream
+! differentiatial equations (computed by
+! calc_two_stream_gammas_lw)
+real(jprb), intent(in), dimension(istartcol:iendcol) :: gamma1, gamma2
+
+! The Planck terms (functions of temperature) at the top and
+! bottom of the layer
+real(jprb), intent(in), dimension(istartcol:iendcol) :: planck_top, planck_bot
+
+! The diffuse reflectance and transmittance, i.e. the fraction of
+! diffuse radiation incident on a layer from either top or bottom
+! that is reflected back or transmitted through
+real(jprb), intent(out), dimension(istartcol:iendcol) :: reflectance, transmittance
+
+! The upward emission at the top of the layer and the downward
+! emission at its base, due to emission from within the layer
+real(jprb), intent(out), dimension(istartcol:iendcol) :: source_up, source_dn
+
+real(jprd) :: k_exponent, reftrans_factor
+real(jprd) :: exponential  ! = exp(-k_exponent*od)
+real(jprd) :: exponential2 ! = exp(-2*k_exponent*od)
+
+real(jprd) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot
+
+integer :: jcol
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+real(jprb) :: hook_handle
+
+if (lhook) call dr_hook('radiation_two_stream:calc_reflectance_transmittance_lw_lr',0,hook_handle)
+#endif
+
+do jcol = istartcol,iendcol
+  if ((total_cloud_cover(jcol) >= cloud_fraction_threshold) .and. &
+  &   (cloud_fraction(jcol) >= cloud_fraction_threshold)) then
+      
+    if (od(jcol) > 1.0e-3_jprd) then
+      k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
+            1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
+      exponential = exp_fast(-k_exponent*od(jcol))
+      exponential2 = exponential*exponential
+      reftrans_factor = 1.0 / (k_exponent + gamma1(jcol) + (k_exponent - gamma1(jcol))*exponential2)
+      ! Meador & Weaver (1980) Eq. 25
+      reflectance(jcol) = gamma2(jcol) * (1.0_jprd - exponential2) * reftrans_factor
+      ! Meador & Weaver (1980) Eq. 26
+      transmittance(jcol) = 2.0_jprd * k_exponent * exponential * reftrans_factor
+    
+      ! Compute upward and downward emission assuming the Planck
+      ! function to vary linearly with optical depth within the layer
+      ! (e.g. Wiscombe , JQSRT 1976).
+
+      ! Stackhouse and Stephens (JAS 1991) Eqs 5 & 12
+      coeff = (planck_bot(jcol)-planck_top(jcol)) / (od(jcol)*(gamma1(jcol)+gamma2(jcol)))
+      coeff_up_top  =  coeff + planck_top(jcol)
+      coeff_up_bot  =  coeff + planck_bot(jcol)
+      coeff_dn_top  = -coeff + planck_top(jcol)
+      coeff_dn_bot  = -coeff + planck_bot(jcol)
+      source_up(jcol) =  coeff_up_top - reflectance(jcol) * coeff_dn_top - transmittance(jcol) * coeff_up_bot
+      source_dn(jcol) =  coeff_dn_bot - reflectance(jcol) * coeff_up_bot - transmittance(jcol) * coeff_dn_top
+    else
+      k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
+            1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
+      reflectance(jcol) = gamma2(jcol) * od(jcol)
+      transmittance(jcol) = (1.0_jprb - k_exponent*od(jcol)) / (1.0_jprb + od(jcol)*(gamma1(jcol)-k_exponent))
+      source_up(jcol) = (1.0_jprb - reflectance(jcol) - transmittance(jcol)) &
+            &       * 0.5 * (planck_top(jcol) + planck_bot(jcol))
+      source_dn(jcol) = source_up(jcol)
+    end if
+  endif
+end do
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+if (lhook) call dr_hook('radiation_two_stream:calc_reflectance_transmittance_lw_lr',1,hook_handle)
+#endif
+
+end subroutine calc_reflectance_transmittance_lw_cond_lr
 
 
   !---------------------------------------------------------------------

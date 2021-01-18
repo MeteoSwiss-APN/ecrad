@@ -53,6 +53,7 @@ contains
          &                               calc_two_stream_gammas_lw_cond_lr, &
          &                               calc_reflectance_transmittance_lw, &
          &                               calc_reflectance_transmittance_lw_lr, &
+         &                               calc_reflectance_transmittance_lw_cond_lr, &
          &                               calc_no_scattering_transmittance_lw, &
          &                               calc_no_scattering_transmittance_lw_lr, &
 #ifdef FAST_EXPONENTIAL
@@ -161,11 +162,6 @@ contains
 
     ! Loop indices for level, column and g point
     integer :: jlev, jcol, jg
-
-    ! cos: inlining of functions
-    real(jprd) :: k_exponent, reftrans_factor
-    real(jprd) :: exponential  ! = exp(-k_exponent*od)
-    real(jprd) :: exponential2 ! = exp(-2*k_exponent*od)
 
     real(jprd) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot
     ! end cos
@@ -316,56 +312,13 @@ contains
           call calc_two_stream_gammas_lw_cond_lr(istartcol, iendcol, total_cloud_cover, cloud%fraction(:,jlev), &
                   & config%cloud_fraction_threshold, ssa_total, g_total, gamma1, gamma2)
 
-            do jcol = istartcol,iendcol
+          call calc_reflectance_transmittance_lw_cond_lr(istartcol, iendcol, &
+                  &  total_cloud_cover, cloud%fraction(:,jlev), config%cloud_fraction_threshold, &
+                  & od_total, gamma1, gamma2, &
+                  &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
+                  &  reflectance(jlev,:), transmittance(jg,jlev,:), &
+                  & source_up(jlev,:), source_dn(jlev,:))
 
-! cos: inlining the function due to the conditionals on the cloud cover
-!              call calc_reflectance_transmittance_lw(ng, &
-!                   &  od_total(:,jcol), gamma1(:,jcol), gamma2(:,jcol), &
-!                   &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
-!                   &  reflectance(:,jlev,jcol), transmittance(:,jlev,jcol), &
-!                   & source_up(:,jlev,jcol), source_dn(:,jlev,jcol))
-
-            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
-&               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
-
-              if (od_total(jcol) > 1.0e-3_jprd) then
-                k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
-                      1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
-                exponential = exp_fast(-k_exponent*od_total(jcol))
-                exponential2 = exponential*exponential
-                reftrans_factor = 1.0 / (k_exponent + gamma1(jcol) + (k_exponent - gamma1(jcol))*exponential2)
-                ! Meador & Weaver (1980) Eq. 25
-                reflectance(jlev,jcol) = gamma2(jcol) * (1.0_jprd - exponential2) * reftrans_factor
-                ! Meador & Weaver (1980) Eq. 26
-                transmittance(jg,jlev,jcol) = 2.0_jprd * k_exponent * exponential * reftrans_factor
-              
-                ! Compute upward and downward emission assuming the Planck
-                ! function to vary linearly with optical depth within the layer
-                ! (e.g. Wiscombe , JQSRT 1976).
-        
-                ! Stackhouse and Stephens (JAS 1991) Eqs 5 & 12
-                coeff = (planck_hl(jg,jlev+1,jcol)-planck_hl(jg,jlev,jcol)) / & 
-                &       (od_total(jcol)*(gamma1(jcol)+gamma2(jcol)))
-                coeff_up_top  =  coeff + planck_hl(jg,jlev,jcol)
-                coeff_up_bot  =  coeff + planck_hl(jg,jlev+1,jcol)
-                coeff_dn_top  = -coeff + planck_hl(jg,jlev,jcol)
-                coeff_dn_bot  = -coeff + planck_hl(jg,jlev+1,jcol)
-                source_up(jlev,jcol) =  coeff_up_top - reflectance(jlev,jcol) * coeff_dn_top - & 
-                &                     transmittance(jg,jlev,jcol) * coeff_up_bot
-                source_dn(jlev,jcol) =  coeff_dn_bot - reflectance(jlev,jcol) * coeff_up_bot - &
-                &                     transmittance(jg,jlev,jcol) * coeff_dn_top
-              else
-                k_exponent = sqrt(max((gamma1(jcol) - gamma2(jcol)) * (gamma1(jcol) + gamma2(jcol)), &
-                      1.E-12_jprd)) ! Eq 18 of Meador & Weaver (1980)
-                reflectance(jlev,jcol) = gamma2(jcol) * od_total(jcol)
-                transmittance(jg,jlev,jcol) = (1.0_jprb - k_exponent*od_total(jcol)) / (1.0_jprb + &
-                &                             od_total(jcol)*(gamma1(jcol)-k_exponent))
-                source_up(jlev,jcol) = (1.0_jprb - reflectance(jlev,jcol) - transmittance(jg,jlev,jcol)) &
-                      &       * 0.5 * (planck_hl(jg,jlev,jcol) + planck_hl(jg,jlev+1,jcol))
-                source_dn(jlev,jcol) = source_up(jlev,jcol)
-              end if
-            endif
-          end do      
         else
 ! cos: inlining the function due to the conditionals on the cloud cover
 
