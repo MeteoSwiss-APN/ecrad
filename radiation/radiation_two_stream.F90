@@ -150,6 +150,53 @@ contains
 
 end subroutine calc_two_stream_gammas_lw_lr
 
+subroutine calc_two_stream_gammas_lw_cond_lr(istartcol, iendcol, total_cloud_cover, cloud_fraction, &
+&   cloud_fraction_threshold, ssa, g, gamma1, gamma2)
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+use yomhook, only : lhook, dr_hook
+#endif
+
+integer, intent(in) :: istartcol, iendcol ! range of columns to process
+real(jprb), intent(in), dimension(istartcol:iendcol) :: total_cloud_cover
+real(jprb), intent(in), dimension(:) :: cloud_fraction 
+real(jprb), intent(in) :: cloud_fraction_threshold
+! Sngle scattering albedo and asymmetry factor:
+real(jprb), intent(in),  dimension(istartcol:iendcol) :: ssa, g
+real(jprb), intent(out), dimension(istartcol:iendcol) :: gamma1, gamma2
+
+real(jprb) :: factor
+
+integer    :: jcol
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+real(jprb) :: hook_handle
+
+if (lhook) call dr_hook('radiation_two_stream:calc_two_stream_gammas_lw_cond_lr',0,hook_handle)
+#endif
+
+! do jg = 1, ng
+do jcol = istartcol,iendcol
+  if ((total_cloud_cover(jcol) >= cloud_fraction_threshold) .and. &
+  &               (cloud_fraction(jcol) >= cloud_fraction_threshold)) then
+  
+    ! Fu et al. (1997), Eq 2.9 and 2.10:
+    !      gamma1(jg) = LwDiffusivity * (1.0_jprb - 0.5_jprb*ssa(jg) &
+    !           &                    * (1.0_jprb + g(jg)))
+    !      gamma2(jg) = LwDiffusivity * 0.5_jprb * ssa(jg) &
+    !           &                    * (1.0_jprb - g(jg))
+    ! Reduce number of multiplications
+    factor = (LwDiffusivity * 0.5_jprb) * ssa(jcol)
+    gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g(jcol))
+    gamma2(jcol) = factor * (1.0_jprb - g(jcol))
+  endif
+end do
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+if (lhook) call dr_hook('radiation_two_stream:calc_two_stream_gammas_lw_cond_lr',1,hook_handle)
+#endif
+
+end subroutine calc_two_stream_gammas_lw_cond_lr
 
   !---------------------------------------------------------------------
   ! Calculate the two-stream coefficients gamma1-gamma4 in the

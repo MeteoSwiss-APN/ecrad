@@ -50,6 +50,7 @@ contains
     use radiation_flux, only           : flux_type
     use radiation_two_stream, only     : calc_two_stream_gammas_lw, &
          &                               calc_two_stream_gammas_lw_lr, &
+         &                               calc_two_stream_gammas_lw_cond_lr, &
          &                               calc_reflectance_transmittance_lw, &
          &                               calc_reflectance_transmittance_lw_lr, &
          &                               calc_no_scattering_transmittance_lw, &
@@ -162,7 +163,6 @@ contains
     integer :: jlev, jcol, jg
 
     ! cos: inlining of functions
-    real(jprb) :: factor
     real(jprd) :: k_exponent, reftrans_factor
     real(jprd) :: exponential  ! = exp(-k_exponent*od)
     real(jprd) :: exponential2 ! = exp(-2*k_exponent*od)
@@ -313,23 +313,10 @@ contains
       
           ! Compute cloudy-sky reflectance, transmittance etc at
           ! each model level
-! cos: inlining the function due to the conditionals on the cloud cover
-!              call calc_two_stream_gammas_lw(ng, ssa_total(:,jcol), g_total(:,jcol), &
-!                   &  gamma1(:,jcol), gamma2(:,jcol))
-          do jcol = istartcol,iendcol
-            if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
-&               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
+          call calc_two_stream_gammas_lw_cond_lr(istartcol, iendcol, total_cloud_cover, cloud%fraction(:,jlev), &
+                  & config%cloud_fraction_threshold, ssa_total, g_total, gamma1, gamma2)
 
-              ! Fu et al. (1997), Eq 2.9 and 2.10:
-              !      gamma1(jg) = LwDiffusivity * (1.0_jprb - 0.5_jprb*ssa(jg) &
-              !           &                    * (1.0_jprb + g(jg)))
-              !      gamma2(jg) = LwDiffusivity * 0.5_jprb * ssa(jg) &
-              !           &                    * (1.0_jprb - g(jg))
-              ! Reduce number of multiplications
-              factor = (LwDiffusivity * 0.5_jprb) * ssa_total(jcol)
-              gamma1(jcol) = LwDiffusivity - factor*(1.0_jprb + g_total(jcol))
-              gamma2(jcol) = factor * (1.0_jprb - g_total(jcol))
-            endif
+            do jcol = istartcol,iendcol
 
 ! cos: inlining the function due to the conditionals on the cloud cover
 !              call calc_reflectance_transmittance_lw(ng, &
