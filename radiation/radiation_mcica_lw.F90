@@ -296,7 +296,6 @@ contains
                    ssa_total(jcol) = scat_od_total / od_total(jcol)
                 endif
               else
-  !                  do jg = 1,ng
                   if (od_total(jcol) > 0.0_jprb) then
                     scat_od = ssa_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol) &
                         &     * od_cloud_new(jcol)
@@ -311,9 +310,6 @@ contains
               end if
             endif
           enddo
-        endif
-
-        if (config%do_lw_cloud_scattering) then
       
           ! Compute cloudy-sky reflectance, transmittance etc at
           ! each model level
