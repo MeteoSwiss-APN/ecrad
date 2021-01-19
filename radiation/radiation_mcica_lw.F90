@@ -122,9 +122,7 @@ contains
 
     ! Fluxes per g point
     ! cos: ng can not be demoted because of reductions
-    real(jprb), dimension(config%n_g_lw, nlev+1,istartcol:iendcol) :: flux_up, flux_dn
-    ! cos: ng can not be demoted because of reductions
-    real(jprb), dimension(config%n_g_lw, nlev+1, istartcol:iendcol) :: flux_up_clear, flux_dn_clear
+    real(jprb), dimension(istartcol:iendcol,nlev+1,config%n_g_lw) :: flux_up, flux_dn, flux_up_clear, flux_dn_clear
 
     ! Combined gas+aerosol+cloud optical depth, single scattering
     ! albedo and asymmetry factor
@@ -231,7 +229,7 @@ contains
         call adding_ica_lw_lr(istartcol, iendcol, nlev, &
              &  ref_clear, trans_clear(:,:,jg), source_up_clear, source_dn_clear, &
              &  emission(jg,:), albedo(jg,:), &
-             &  flux_up_clear(jg,:,:), flux_dn_clear(jg,:,:))
+             &  flux_up_clear(:,:,jg), flux_dn_clear(:,:,jg))
         
       else
         ! ! Non-scattering case: use simpler functions for
@@ -245,7 +243,7 @@ contains
         call calc_fluxes_no_scattering_lw_lr(istartcol, iendcol, nlev, &
              &  trans_clear(:,:,jg), source_up_clear, source_dn_clear, &
              &  emission(jg,:), albedo(jg,:), &
-             &  flux_up_clear(jg,:,:), flux_dn_clear(jg,:,:))
+             &  flux_up_clear(:,:,jg), flux_dn_clear(:,:,jg))
         
         ! Ensure that clear-sky reflectance is zero since it may be
         ! used in cloudy-sky case
@@ -344,7 +342,7 @@ contains
         ! allowing for scattering in all layers
         call adding_ica_lw_cond_lr(istartcol, iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
 &          reflectance, transmittance(:,:,jg), source_up, &
-&          source_dn, emission(jg,:), albedo(jg,:), flux_up(jg,:,:), flux_dn(jg,:,:))
+&          source_dn, emission(jg,:), albedo(jg,:), flux_up(:,:,jg), flux_dn(:,:,jg))
       else if (config%do_lw_cloud_scattering) then
         ! Use adding method to compute fluxes but optimize for the
         ! presence of clear-sky layers
@@ -356,7 +354,7 @@ contains
           call fast_adding_ica_lw_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
 &               reflectance, transmittance(:,:,jg), source_up, &
               & source_dn, emission(jg,:), albedo(jg,:), is_clear_sky_layer(:,:), i_cloud_top, &
-              & flux_dn_clear(jg,:,:), flux_up(jg,:,:), flux_dn(jg,:,:))
+              & flux_dn_clear(:,:,jg), flux_up(:,:,jg), flux_dn(:,:,jg))
       else
         ! ! Simpler down-then-up method to compute fluxes
         ! call calc_fluxes_no_scattering_lw(ng, nlev, &
@@ -365,7 +363,7 @@ contains
                         ! Simpler down-then-up method to compute fluxes
         call calc_fluxes_no_scattering_lw_cond_lr(istartcol,iendcol, nlev, total_cloud_cover, config%cloud_fraction_threshold, &
         &  transmittance(:,:,jg), source_up, source_dn, emission(jg,:), albedo(jg,:), &
-        &  flux_up(jg,:,:), flux_dn(jg,:,:))
+        &  flux_up(:,:,jg), flux_dn(:,:,jg))
 
       end if
     enddo
@@ -377,15 +375,15 @@ contains
     do jcol = istartcol,iendcol
 
       ! Sum over g-points to compute broadband fluxes
-      flux%lw_up_clear(jcol,:) = sum(flux_up_clear(:,:,jcol),1)
-      flux%lw_dn_clear(jcol,:) = sum(flux_dn_clear(:,:,jcol),1)
-      flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(:,nlev+1,jcol)
+      flux%lw_up_clear(jcol,:) = sum(flux_up_clear(jcol,:,:),2)
+      flux%lw_dn_clear(jcol,:) = sum(flux_dn_clear(jcol,:,:),2)
+      flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(jcol,nlev+1,:)
 
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
         
         ! Store overcast broadband fluxes
-        flux%lw_up(jcol,:) = sum(flux_up(:,:,jcol),1)
-        flux%lw_dn(jcol,:) = sum(flux_dn(:,:,jcol),1)
+        flux%lw_up(jcol,:) = sum(flux_up(jcol,:,:),2)
+        flux%lw_dn(jcol,:) = sum(flux_dn(jcol,:,:),2)
 
         ! Cloudy flux profiles currently assume completely overcast
         ! skies; perform weighted average with clear-sky profile
@@ -394,18 +392,18 @@ contains
         flux%lw_dn(jcol,:) =  total_cloud_cover(jcol) *flux%lw_dn(jcol,:) &
              &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_dn_clear(jcol,:)
         ! Store surface spectral downwelling fluxes
-        flux%lw_dn_surf_g(:,jcol) = total_cloud_cover(jcol)*flux_dn(:,nlev+1,jcol) &
+        flux%lw_dn_surf_g(:,jcol) = total_cloud_cover(jcol)*flux_dn(jcol,nlev+1,:) &
              &  + (1.0_jprb - total_cloud_cover(jcol))*flux%lw_dn_surf_clear_g(:,jcol)
 
         ! Compute the longwave derivatives needed by Hogan and Bozzo
         ! (2015) approximate radiation update scheme
         if (config%do_lw_derivatives) then
-          call calc_lw_derivatives_ica(ng, nlev, jcol, transmittance(jcol,:,:), flux_up(:,nlev+1,jcol), &
+          call calc_lw_derivatives_ica(ng, nlev, jcol, transmittance(jcol,:,:), flux_up(jcol,nlev+1,:), &
                &                       flux%lw_derivatives)
 
           if (total_cloud_cover(jcol) < 1.0_jprb - config%cloud_fraction_threshold) then
             ! Modify the existing derivative with the contribution from the clear sky
-            call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear(jcol,:,:), flux_up_clear(:,nlev+1,jcol), &
+            call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear(jcol,:,:), flux_up_clear(jcol,nlev+1,:), &
                  &                         1.0_jprb-total_cloud_cover(jcol), flux%lw_derivatives)
           end if
         end if
@@ -416,7 +414,7 @@ contains
         flux%lw_dn(jcol,:) = flux%lw_dn_clear(jcol,:)
         flux%lw_dn_surf_g(:,jcol) = flux%lw_dn_surf_clear_g(:,jcol)
         if (config%do_lw_derivatives) then
-          call calc_lw_derivatives_ica(ng, nlev, jcol, trans_clear(jcol,:,:), flux_up_clear(:,nlev+1,jcol), &
+          call calc_lw_derivatives_ica(ng, nlev, jcol, trans_clear(jcol,:,:), flux_up_clear(jcol,nlev+1,:), &
                &                       flux%lw_derivatives)
  
         end if

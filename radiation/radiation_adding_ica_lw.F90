@@ -160,7 +160,7 @@ contains
 
  ! Resulting fluxes (W m-2) at half-levels: diffuse upwelling and
  ! downwelling
- real(jprb), intent(out), dimension(nlev+1, istartcol:iendcol) :: flux_up, flux_dn
+ real(jprb), intent(out), dimension(istartcol:iendcol,nlev+1) :: flux_up, flux_dn
  
  ! Albedo of the entire earth/atmosphere system below each half
  ! level
@@ -212,23 +212,23 @@ contains
  end do
 
  ! At top-of-atmosphere there is no diffuse downwelling radiation
- flux_dn(1,:) = 0.0_jprb
+ flux_dn(:,1) = 0.0_jprb
 
  ! At top-of-atmosphere, all upwelling radiation is due to emission
  ! below that level
- flux_up(1,:) = source(1,:)
+ flux_up(:,1) = source(1,:)
 
  ! Work back down through the atmosphere computing the fluxes at
  ! each half-level
  do jlev = 1,nlev
    do jcol = istartcol,iendcol
      ! Shonk & Hogan (2008) Eq 14 (after simplification):
-     flux_dn(jlev+1,jcol) &
-          &  = (transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
+     flux_dn(jcol,jlev+1) &
+          &  = (transmittance(jlev,jcol)*flux_dn(jcol,jlev) &
           &     + reflectance(jcol,jlev)*source(jlev+1,jcol) &
           &     + source_dn(jcol,jlev)) * inv_denominator(jlev,jcol)
      ! Shonk & Hogan (2008) Eq 12:
-     flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
+     flux_up(jcol,jlev+1) = albedo(jlev+1,jcol)*flux_dn(jcol,jlev+1) &
           &            + source(jlev+1,jcol)
    end do
  end do
@@ -264,7 +264,7 @@ real(jprb), intent(in),  dimension(istartcol:iendcol,nlev)   :: source_up, sourc
 
 ! Resulting fluxes (W m-2) at half-levels: diffuse upwelling and
 ! downwelling
-real(jprb), intent(out), dimension(nlev+1, istartcol:iendcol) :: flux_up, flux_dn
+real(jprb), intent(out), dimension(istartcol:iendcol, nlev+1) :: flux_up, flux_dn
 
 ! Albedo of the entire earth/atmosphere system below each half
 ! level
@@ -326,11 +326,11 @@ do jcol = istartcol,iendcol
   if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
 
   ! At top-of-atmosphere there is no diffuse downwelling radiation
-    flux_dn(1,jcol) = 0.0_jprb
+    flux_dn(jcol,1) = 0.0_jprb
 
     ! At top-of-atmosphere, all upwelling radiation is due to emission
     ! below that level
-    flux_up(1,jcol) = source(1,jcol)
+    flux_up(jcol,1) = source(1,jcol)
   endif
 enddo
 
@@ -340,12 +340,12 @@ do jlev = 1,nlev
  do jcol = istartcol,iendcol
   if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
      ! Shonk & Hogan (2008) Eq 14 (after simplification):
-     flux_dn(jlev+1,jcol) &
-        &  = (transmittance(jcol,jlev)*flux_dn(jlev,jcol) &
+     flux_dn(jcol,jlev+1) &
+        &  = (transmittance(jcol,jlev)*flux_dn(jcol,jlev) &
         &     + reflectance(jcol,jlev)*source(jlev+1,jcol) &
         &     + source_dn(jcol,jlev)) * inv_denominator(jlev,jcol)
      ! Shonk & Hogan (2008) Eq 12:
-     flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
+     flux_up(jcol,jlev+1) = albedo(jlev+1,jcol)*flux_dn(jcol,jlev+1) &
         &            + source(jlev+1,jcol)
   endif
  end do
@@ -522,11 +522,11 @@ end subroutine adding_ica_lw_cond_lr
  integer, intent(in), dimension(istartcol:iendcol) :: i_cloud_top
 
  ! Pre-computed clear-sky downwelling fluxes (W m-2) at half-levels
- real(jprb), intent(in), dimension(nlev+1,istartcol:iendcol)  :: flux_dn_clear
+ real(jprb), intent(in), dimension(istartcol:iendcol,nlev+1)  :: flux_dn_clear
 
  ! Resulting fluxes (W m-2) at half-levels: diffuse upwelling and
  ! downwelling
- real(jprb), intent(out), dimension(nlev+1,istartcol:iendcol) :: flux_up, flux_dn
+ real(jprb), intent(out), dimension(istartcol:iendcol,nlev+1) :: flux_up, flux_dn
  
  ! Albedo of the entire earth/atmosphere system below each half
  ! level
@@ -549,7 +549,7 @@ end subroutine adding_ica_lw_cond_lr
  do jcol=istartcol,iendcol
   if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
    ! Copy over downwelling fluxes above cloud from clear sky
-     flux_dn(1:i_cloud_top(jcol),jcol) = flux_dn_clear(1:i_cloud_top(jcol),jcol)
+     flux_dn(jcol,1:i_cloud_top(jcol)) = flux_dn_clear(jcol,1:i_cloud_top(jcol))
 
      albedo(nlev+1,jcol) = albedo_surf(jcol)
  
@@ -598,8 +598,8 @@ end subroutine adding_ica_lw_cond_lr
  do jcol=istartcol,iendcol
   if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
    ! Compute the fluxes above the highest cloud
-   flux_up(i_cloud_top(jcol),jcol) = source(i_cloud_top(jcol),jcol) &
-      &                 + albedo(i_cloud_top(jcol),jcol)*flux_dn(i_cloud_top(jcol),jcol)
+   flux_up(jcol,i_cloud_top(jcol)) = source(i_cloud_top(jcol),jcol) &
+      &                 + albedo(i_cloud_top(jcol),jcol)*flux_dn(jcol,i_cloud_top(jcol))
   endif
  enddo
  !do jlev = i_cloud_top(jcol)-1,1,-1
@@ -609,7 +609,7 @@ end subroutine adding_ica_lw_cond_lr
    do jcol=istartcol,iendcol
     if (total_cloud_cover(jcol) >= cloud_fraction_threshold) then
      if(jlev < i_cloud_top(jcol)) then
-       flux_up(jlev,jcol) = transmittance(jcol,jlev)*flux_up(jlev+1,jcol) + source_up(jcol,jlev)
+       flux_up(jcol,jlev) = transmittance(jcol,jlev)*flux_up(jcol,jlev+1) + source_up(jcol,jlev)
      endif
     endif
    end do
@@ -624,18 +624,18 @@ end subroutine adding_ica_lw_cond_lr
     if ((total_cloud_cover(jcol) >= cloud_fraction_threshold) .and. jlev >= i_cloud_top(jcol)) then
 
    if (is_clear_sky_layer(jlev,jcol)) then
-       flux_dn(jlev+1,jcol) = transmittance(jcol,jlev)*flux_dn(jlev,jcol) &
+       flux_dn(jcol,jlev+1) = transmittance(jcol,jlev)*flux_dn(jcol,jlev) &
             &               + source_dn(jcol,jlev)
-       flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
+       flux_up(jcol,jlev+1) = albedo(jlev+1,jcol)*flux_dn(jcol,jlev+1) &
             &               + source(jlev+1,jcol)
    else
        ! Shonk & Hogan (2008) Eq 14 (after simplification):
-       flux_dn(jlev+1,jcol) &
-            &  = (transmittance(jcol,jlev)*flux_dn(jlev,jcol) &
+       flux_dn(jcol,jlev+1) &
+            &  = (transmittance(jcol,jlev)*flux_dn(jcol,jlev) &
             &     + reflectance(jcol,jlev)*source(jlev+1,jcol) &
             &     + source_dn(jcol,jlev)) * inv_denominator(jlev,jcol)
        ! Shonk & Hogan (2008) Eq 12:
-       flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
+       flux_up(jcol,jlev+1) = albedo(jlev+1,jcol)*flux_dn(jcol,jlev+1) &
             &               + source(jlev+1,jcol)
    end if
   endif
@@ -736,7 +736,7 @@ end subroutine fast_adding_ica_lw_lr
 
  ! Resulting fluxes (W m-2) at half-levels: diffuse upwelling and
  ! downwelling
- real(jprb), intent(out), dimension(nlev+1,istartcol:iendcol) :: flux_up, flux_dn
+ real(jprb), intent(out), dimension(istartcol:iendcol,nlev+1) :: flux_up, flux_dn
  
  ! Loop index for model level
  integer :: jlev
@@ -746,21 +746,21 @@ end subroutine fast_adding_ica_lw_lr
  if (lhook) call dr_hook('radiation_adding_ica_lw:calc_fluxes_no_scattering_lw_lr',0,hook_handle)
 
  ! At top-of-atmosphere there is no diffuse downwelling radiation
- flux_dn(1,:) = 0.0_jprb
+ flux_dn(:,1) = 0.0_jprb
 
  ! Work down through the atmosphere computing the downward fluxes
  ! at each half-level
  do jlev = 1,nlev
-   flux_dn(jlev+1,:) = transmittance(:,jlev)*flux_dn(jlev,:) + source_dn(:,jlev)
+   flux_dn(:,jlev+1) = transmittance(:,jlev)*flux_dn(:,jlev) + source_dn(:,jlev)
  end do
 
  ! Surface reflection and emission
- flux_up(nlev+1,:) = emission_surf + albedo_surf * flux_dn(nlev+1,:)
+ flux_up(:,nlev+1) = emission_surf + albedo_surf * flux_dn(:,nlev+1)
 
  ! Work back up through the atmosphere computing the upward fluxes
  ! at each half-level
  do jlev = nlev,1,-1
-   flux_up(jlev,:) = transmittance(:,jlev)*flux_up(jlev+1,:) + source_up(:,jlev)
+   flux_up(:,jlev) = transmittance(:,jlev)*flux_up(:,jlev+1) + source_up(:,jlev)
  end do
  
  if (lhook) call dr_hook('radiation_adding_ica_lw:calc_fluxes_no_scattering_lw_lr',1,hook_handle)
