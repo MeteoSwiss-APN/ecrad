@@ -66,7 +66,7 @@ contains
 #define exp_fast exp
 #endif
 
-    use radiation_adding_ica_lw, only  : adding_ica_lw, adding_ica_lw_lr, adding_ica_lw_cond_lr, fast_adding_ica_lw, &
+    use radiation_adding_ica_lw, only  : adding_ica_lw_lr, adding_ica_lw_cond_lr, fast_adding_ica_lw, &
          &                               fast_adding_ica_lw_lr, calc_fluxes_no_scattering_lw, &
          &                               calc_fluxes_no_scattering_lw_lr, calc_fluxes_no_scattering_lw_cond_lr
     use radiation_lw_derivatives, only : calc_lw_derivatives_ica, modify_lw_derivatives_ica
