@@ -164,14 +164,14 @@ contains
  
  ! Albedo of the entire earth/atmosphere system below each half
  ! level
- real(jprb), dimension(nlev+1, istartcol:iendcol) :: albedo
+ real(jprb), dimension(istartcol:iendcol,nlev+1) :: albedo
 
  ! Upwelling radiation at each half-level due to emission below
  ! that half-level (W m-2)
- real(jprb), dimension(nlev+1, istartcol:iendcol) :: source
+ real(jprb), dimension(istartcol:iendcol,nlev+1) :: source
 
  ! Equal to 1/(1-albedo*reflectance)
- real(jprb), dimension(nlev, istartcol:iendcol)   :: inv_denominator
+ real(jprb), dimension(istartcol:iendcol,nlev)   :: inv_denominator
 
  ! Loop index for model level and column
  integer :: jlev, jcol
@@ -180,10 +180,10 @@ contains
 
  if (lhook) call dr_hook('radiation_adding_ica_lw:adding_ica_lw_lr',0,hook_handle)
 
- albedo(nlev+1,:) = albedo_surf
+ albedo(:,nlev+1) = albedo_surf
 
  ! At the surface, the source is thermal emission
- source(nlev+1,:) = emission_surf
+ source(:,nlev+1) = emission_surf
 
  ! Work back up through the atmosphere and compute the albedo of
  ! the entire earth/atmosphere system below that half-level, and
@@ -198,16 +198,16 @@ contains
    ! loop.
    do jcol = istartcol,iendcol
      ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
-     inv_denominator(jlev,jcol) = 1.0_jprb &
-          &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jcol,jlev))
+     inv_denominator(jcol,jlev) = 1.0_jprb &
+          &  / (1.0_jprb-albedo(jcol,jlev+1)*reflectance(jcol,jlev))
      ! Shonk & Hogan (2008) Eq 9, Petty (2006) Eq 13.81:
-     albedo(jlev,jcol) = reflectance(jcol,jlev) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
-          &  * albedo(jlev+1,jcol) * inv_denominator(jlev,jcol)
+     albedo(jcol,jlev) = reflectance(jcol,jlev) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
+          &  * albedo(jcol,jlev+1) * inv_denominator(jcol,jlev)
      ! Shonk & Hogan (2008) Eq 11:
-     source(jlev,jcol) = source_up(jcol,jlev) &
-          &  + transmittance(jlev,jcol) * (source(jlev+1,jcol) &
-          &                    + albedo(jlev+1,jcol)*source_dn(jcol,jlev)) &
-          &                   * inv_denominator(jlev,jcol)
+     source(jcol,jlev) = source_up(jcol,jlev) &
+          &  + transmittance(jlev,jcol) * (source(jcol,jlev+1) &
+          &                    + albedo(jcol,jlev+1)*source_dn(jcol,jlev)) &
+          &                   * inv_denominator(jcol,jlev)
    end do
  end do
 
@@ -216,7 +216,7 @@ contains
 
  ! At top-of-atmosphere, all upwelling radiation is due to emission
  ! below that level
- flux_up(:,1) = source(1,:)
+ flux_up(:,1) = source(:,1)
 
  ! Work back down through the atmosphere computing the fluxes at
  ! each half-level
@@ -225,11 +225,11 @@ contains
      ! Shonk & Hogan (2008) Eq 14 (after simplification):
      flux_dn(jcol,jlev+1) &
           &  = (transmittance(jlev,jcol)*flux_dn(jcol,jlev) &
-          &     + reflectance(jcol,jlev)*source(jlev+1,jcol) &
-          &     + source_dn(jcol,jlev)) * inv_denominator(jlev,jcol)
+          &     + reflectance(jcol,jlev)*source(jcol,jlev+1) &
+          &     + source_dn(jcol,jlev)) * inv_denominator(jcol,jlev)
      ! Shonk & Hogan (2008) Eq 12:
-     flux_up(jcol,jlev+1) = albedo(jlev+1,jcol)*flux_dn(jcol,jlev+1) &
-          &            + source(jlev+1,jcol)
+     flux_up(jcol,jlev+1) = albedo(jcol,jlev+1)*flux_dn(jcol,jlev+1) &
+          &            + source(jcol,jlev+1)
    end do
  end do
 
