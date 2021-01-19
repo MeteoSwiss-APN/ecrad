@@ -117,7 +117,7 @@ contains
     ! Emission by a layer into the upwelling or downwelling diffuse
     ! streams, in clear and all skies
     ! cos: ng can not be demoted because of reductions
-    real(jprb), dimension(nlev, istartcol:iendcol) :: source_up_clear, source_up, &
+    real(jprb), dimension(istartcol:iendcol,nlev) :: source_up_clear, source_up, &
                                               source_dn_clear, source_dn
 
     ! Fluxes per g point
@@ -225,7 +225,7 @@ contains
                &  od(jg,jlev,:), gamma1, gamma2, &
                &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
                &  ref_clear(:,jlev), trans_clear(:,jlev,jg), &
-               &  source_up_clear(jlev,:), source_dn_clear(jlev,:))
+               &  source_up_clear(:,jlev), source_dn_clear(:,jlev))
         end do
         ! Then use adding method to compute fluxes
         call adding_ica_lw_lr(istartcol, iendcol, nlev, &
@@ -239,7 +239,7 @@ contains
         do jlev = 1,nlev
           call calc_no_scattering_transmittance_lw_lr(istartcol, iendcol, od(jg,jlev,:), &
                &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
-               &  trans_clear(:,jlev,jg), source_up_clear(jlev,:), source_dn_clear(jlev,:))
+               &  trans_clear(:,jlev,jg), source_up_clear(:,jlev), source_dn_clear(:,jlev))
         end do
         ! ! ! Simpler down-then-up method to compute fluxes
         call calc_fluxes_no_scattering_lw_lr(istartcol, iendcol, nlev, &
@@ -315,7 +315,7 @@ contains
                   & od_total, gamma1, gamma2, &
                   &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
                   &  reflectance(:,jlev), transmittance(:,jlev,jg), &
-                  & source_up(jlev,:), source_dn(jlev,:))
+                  & source_up(:,jlev), source_dn(:,jlev))
 
         else
           ! No-scattering case: use simpler functions for
@@ -323,7 +323,7 @@ contains
              call calc_no_scattering_transmittance_lw_cond_lr(istartcol, iendcol, &
                   & total_cloud_cover, cloud%fraction(:,jlev), config%cloud_fraction_threshold, &
                   & od_total, planck_hl(jg,jlev,:), planck_hl(jg,jlev+1, :), &
-                  &  transmittance(:,jlev,jg), source_up(jlev,:), source_dn(jlev,:))
+                  &  transmittance(:,jlev,jg), source_up(:,jlev), source_dn(:,jlev))
         end if
 
         do jcol = istartcol,iendcol
@@ -334,8 +334,8 @@ contains
             ! Clear-sky layer: copy over clear-sky values
             reflectance(jcol,jlev) = ref_clear(jcol,jlev)
             transmittance(jcol,jlev,jg) = trans_clear(jcol,jlev,jg)
-            source_up(jlev,jcol) = source_up_clear(jlev,jcol)
-            source_dn(jlev,jcol) = source_dn_clear(jlev,jcol)
+            source_up(jcol,jlev) = source_up_clear(jcol,jlev)
+            source_dn(jcol,jlev) = source_dn_clear(jcol,jlev)
           endif
         enddo
       end do
