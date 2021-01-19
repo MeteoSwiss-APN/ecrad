@@ -139,7 +139,7 @@ contains
     ! Optical depth scaling from the cloud generator, zero indicating
     ! clear skies
     ! cos; (ng) can be demoted, but required moving the last ng loop of cloud_generator out and fuse it
-    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_scaling
+    real(jprb), dimension(istartcol:iendcol,nlev,config%n_g_lw) :: od_scaling
 
     ! Modified optical depth after McICA scaling to represent cloud
     ! inhomogeneity
@@ -150,7 +150,7 @@ contains
     real(jprb), dimension(istartcol:iendcol) :: total_cloud_cover
 
     ! Identify clear-sky layers
-    logical :: is_clear_sky_layer(nlev,istartcol:iendcol)
+    logical :: is_clear_sky_layer(istartcol:iendcol,nlev)
 
     ! Index of the highest cloudy layer
     ! cos : temporarily added jcol
@@ -192,12 +192,12 @@ contains
       if (total_cloud_cover(jcol) >= config%cloud_fraction_threshold) then
         ! Total-sky calculation
 
-        is_clear_sky_layer(:,jcol) = .true.
+        is_clear_sky_layer(jcol,:) = .true.
         i_cloud_top(jcol) = nlev+1
         do jlev = 1,nlev
           ! Compute combined gas+aerosol+cloud optical properties
           if (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold) then
-            is_clear_sky_layer(jlev,jcol) = .false.
+            is_clear_sky_layer(jcol,jlev) = .false.
             ! Get index to the first cloudy layer from the top
             if (i_cloud_top(jcol) > jlev) then
               i_cloud_top(jcol) = jlev
@@ -255,7 +255,7 @@ contains
         ! Compute combined gas+aerosol+cloud optical properties
           if ((total_cloud_cover(jcol) >= config%cloud_fraction_threshold) .and. &
 &               (cloud%fraction(jcol,jlev) >= config%cloud_fraction_threshold)) then
-            od_cloud_new(jcol) = od_scaling(jg,jlev, jcol) &
+            od_cloud_new(jcol) = od_scaling(jcol,jlev,jg) &
                 &  * od_cloud(config%i_band_from_reordered_g_lw(jg),jlev,jcol)
             od_total(jcol) = od(jg,jlev,jcol) + od_cloud_new(jcol)
             ssa_total(jcol) = 0.0_jprb

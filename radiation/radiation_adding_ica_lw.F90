@@ -516,7 +516,7 @@ end subroutine adding_ica_lw_cond_lr
  real(jprb), intent(in),  dimension(istartcol:iendcol,nlev)   :: source_up, source_dn
 
  ! Determine which layers are cloud-free
- logical, intent(in) :: is_clear_sky_layer(nlev,istartcol:iendcol)
+ logical, intent(in) :: is_clear_sky_layer(istartcol:iendcol,nlev)
 
  ! Index to highest cloudy layer
  integer, intent(in), dimension(istartcol:iendcol) :: i_cloud_top
@@ -570,7 +570,7 @@ end subroutine adding_ica_lw_cond_lr
 
      if(jlev >= i_cloud_top(jcol)) then
      
-        if (is_clear_sky_layer(jlev,jcol)) then
+        if (is_clear_sky_layer(jcol,jlev)) then
         ! ! Reflectance of this layer is zero, simplifying the expression
 
           albedo(jlev,jcol) = transmittance(jcol,jlev)*transmittance(jcol,jlev)*albedo(jlev+1,jcol)
@@ -623,7 +623,7 @@ end subroutine adding_ica_lw_cond_lr
   do jcol=istartcol,iendcol
     if ((total_cloud_cover(jcol) >= cloud_fraction_threshold) .and. jlev >= i_cloud_top(jcol)) then
 
-   if (is_clear_sky_layer(jlev,jcol)) then
+   if (is_clear_sky_layer(jcol,jlev)) then
        flux_dn(jcol,jlev+1) = transmittance(jcol,jlev)*flux_dn(jcol,jlev) &
             &               + source_dn(jcol,jlev)
        flux_up(jcol,jlev+1) = albedo(jlev+1,jcol)*flux_dn(jcol,jlev+1) &
