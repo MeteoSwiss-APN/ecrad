@@ -110,7 +110,7 @@ contains
 
     ! Diffuse reflectance and transmittance for each layer in clear
     ! and all skies
-    real(jprb), dimension(nlev, istartcol:iendcol) :: ref_clear, reflectance
+    real(jprb), dimension(istartcol:iendcol, nlev) :: ref_clear, reflectance
     ! cos: ng can not be demoted because of reductions
     real(jprb), dimension(config%n_g_lw, nlev, istartcol:iendcol) :: trans_clear, transmittance
 
@@ -224,7 +224,7 @@ contains
           call calc_reflectance_transmittance_lw_lr(istartcol, iendcol, &
                &  od(jg,jlev,:), gamma1, gamma2, &
                &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
-               &  ref_clear(jlev,:), trans_clear(jg,jlev,:), &
+               &  ref_clear(:,jlev), trans_clear(jg,jlev,:), &
                &  source_up_clear(jlev,:), source_dn_clear(jlev,:))
         end do
         ! Then use adding method to compute fluxes
@@ -314,7 +314,7 @@ contains
                   &  total_cloud_cover, cloud%fraction(:,jlev), config%cloud_fraction_threshold, &
                   & od_total, gamma1, gamma2, &
                   &  planck_hl(jg,jlev,:), planck_hl(jg,jlev+1,:), &
-                  &  reflectance(jlev,:), transmittance(jg,jlev,:), &
+                  &  reflectance(:,jlev), transmittance(jg,jlev,:), &
                   & source_up(jlev,:), source_dn(jlev,:))
 
         else
@@ -332,7 +332,7 @@ contains
 &           (cloud%fraction(jcol,jlev) < config%cloud_fraction_threshold)) then
 
             ! Clear-sky layer: copy over clear-sky values
-            reflectance(jlev,jcol) = ref_clear(jlev, jcol)
+            reflectance(jcol,jlev) = ref_clear(jcol,jlev)
             transmittance(jg,jlev,jcol) = trans_clear(jg,jlev,jcol)
             source_up(jlev,jcol) = source_up_clear(jlev,jcol)
             source_dn(jlev,jcol) = source_dn_clear(jlev,jcol)

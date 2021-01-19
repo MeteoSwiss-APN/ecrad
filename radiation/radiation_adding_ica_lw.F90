@@ -153,7 +153,7 @@ contains
  real(jprb), intent(in),  dimension(istartcol:iendcol) :: emission_surf, albedo_surf
 
  ! Diffuse reflectance and transmittance of each layer
- real(jprb), intent(in),  dimension(nlev,istartcol:iendcol)   :: reflectance, transmittance
+ real(jprb), intent(in),  dimension(istartcol:iendcol,nlev)   :: reflectance, transmittance
 
  ! Emission from each layer in an upward and downward direction
  real(jprb), intent(in),  dimension(nlev, istartcol:iendcol)   :: source_up, source_dn
@@ -199,9 +199,9 @@ contains
    do jcol = istartcol,iendcol
      ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
      inv_denominator(jlev,jcol) = 1.0_jprb &
-          &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jlev,jcol))
+          &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jcol,jlev))
      ! Shonk & Hogan (2008) Eq 9, Petty (2006) Eq 13.81:
-     albedo(jlev,jcol) = reflectance(jlev,jcol) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
+     albedo(jlev,jcol) = reflectance(jcol,jlev) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
           &  * albedo(jlev+1,jcol) * inv_denominator(jlev,jcol)
      ! Shonk & Hogan (2008) Eq 11:
      source(jlev,jcol) = source_up(jlev,jcol) &
@@ -225,7 +225,7 @@ contains
      ! Shonk & Hogan (2008) Eq 14 (after simplification):
      flux_dn(jlev+1,jcol) &
           &  = (transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
-          &     + reflectance(jlev,jcol)*source(jlev+1,jcol) &
+          &     + reflectance(jcol,jlev)*source(jlev+1,jcol) &
           &     + source_dn(jlev,jcol)) * inv_denominator(jlev,jcol)
      ! Shonk & Hogan (2008) Eq 12:
      flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
@@ -510,7 +510,8 @@ end subroutine adding_ica_lw_cond_lr
  real(jprb), intent(in),  dimension(istartcol:iendcol) :: emission_surf, albedo_surf
 
  ! Diffuse reflectance and transmittance of each layer
- real(jprb), intent(in),  dimension(nlev,istartcol:iendcol)   :: reflectance, transmittance
+ real(jprb), intent(in),  dimension(istartcol:iendcol,nlev)   :: reflectance
+ real(jprb), intent(in),  dimension(nlev,istartcol:iendcol)   :: transmittance
 
  ! Emission from each layer in an upward and downward direction
  real(jprb), intent(in),  dimension(nlev,istartcol:iendcol)   :: source_up, source_dn
@@ -580,9 +581,9 @@ end subroutine adding_ica_lw_cond_lr
         else
           ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
           inv_denominator(jlev,jcol) = 1.0_jprb &
-                &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jlev,jcol))
+                &  / (1.0_jprb-albedo(jlev+1,jcol)*reflectance(jcol,jlev))
           ! Shonk & Hogan (2008) Eq 9, Petty (2006) Eq 13.81:
-          albedo(jlev,jcol) = reflectance(jlev,jcol) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
+          albedo(jlev,jcol) = reflectance(jcol,jlev) + transmittance(jlev,jcol)*transmittance(jlev,jcol) &
                 &  * albedo(jlev+1,jcol) * inv_denominator(jlev,jcol)
           ! Shonk & Hogan (2008) Eq 11:
           source(jlev,jcol) = source_up(jlev,jcol) &
@@ -632,7 +633,7 @@ end subroutine adding_ica_lw_cond_lr
        ! Shonk & Hogan (2008) Eq 14 (after simplification):
        flux_dn(jlev+1,jcol) &
             &  = (transmittance(jlev,jcol)*flux_dn(jlev,jcol) &
-            &     + reflectance(jlev,jcol)*source(jlev+1,jcol) &
+            &     + reflectance(jcol,jlev)*source(jlev+1,jcol) &
             &     + source_dn(jlev,jcol)) * inv_denominator(jlev,jcol)
        ! Shonk & Hogan (2008) Eq 12:
        flux_up(jlev+1,jcol) = albedo(jlev+1,jcol)*flux_dn(jlev+1,jcol) &
