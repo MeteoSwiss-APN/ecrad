@@ -63,7 +63,6 @@ contains
       tstart(idx) = omp_get_wtime()
     else if (iswitch == 1) then
       tstop(idx) = omp_get_wtime()
-      ! print*, tstop(idx), tstart(idx), tstop(idx) - tstart(idx), omp_get_wtime()
       total_time(idx) = total_time(idx) + (tstop(idx) - tstart(idx))
     endif
 
@@ -90,8 +89,7 @@ contains
 
     do idx = 1,1000
       if(total_time(idx) > 0.0) then
-        write(1, '(A80,E10.3,I5)'), names(idx), total_time(idx), ncalls(idx)
-        ! write(*, '(A80,E10.3,I4)'), names(idx), total_time(idx), ncalls(idx)
+        write(1, '(A80,E10.3,I10)'), names(idx), total_time(idx), ncalls(idx)
       end if
     end do
 
