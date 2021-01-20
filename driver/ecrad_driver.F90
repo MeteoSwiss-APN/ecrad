@@ -32,6 +32,8 @@ program ecrad_driver
   ! --------------------------------------------------------
   use parkind1,                 only : jprb, jprd ! Working/double precision
 
+  use yomhook,                  only : dr_hook, lhook, initialize_timers, finalize_timers
+
   use radiation_io,             only : nulout
   use radiation_interface,      only : setup_radiation, radiation, set_gas_units
   use radiation_config,         only : config_type
@@ -106,8 +108,12 @@ program ecrad_driver
 
   ! Start/stop time in seconds
   real(kind=jprd) :: tstart, tstop
+
+  real(kind=jprd) :: hook_handle
  
 
+  if (lhook) call initialize_timers()
+  if (lhook) call dr_hook('ecrad_driver:ecrad_driver',0,hook_handle)
   ! --------------------------------------------------------
   ! Section 2: Configure
   ! --------------------------------------------------------
@@ -122,6 +128,7 @@ program ecrad_driver
   if (istatus /= 0) then
     stop 'Failed to read name of namelist file as string of length < 512'
   end if
+
 
   ! Read "radiation" namelist into radiation configuration type
   call config%read(file_name=file_name)
@@ -354,5 +361,8 @@ program ecrad_driver
   if (driver_config%iverbose >= 2) then
     write(nulout,'(a)') '------------------------------------------------------------------------------------'
   end if
+
+  if (lhook) call dr_hook('ecrad_driver:ecrad_driver',1,hook_handle)
+  if (lhook) call finalize_timers()
 
 end program ecrad_driver
