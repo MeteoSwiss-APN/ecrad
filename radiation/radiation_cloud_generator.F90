@@ -131,13 +131,13 @@ contains
 
     if (i_overlap_scheme == IOverlapExponentialRandom) then
       call cum_cloud_cover_exp_ran(nlev, frac, overlap_param, &
-           &   cum_cloud_cover, pair_cloud_cover, is_beta_overlap)
+          &   cum_cloud_cover, pair_cloud_cover, is_beta_overlap)
     else if (i_overlap_scheme == IOverlapMaximumRandom) then
       call cum_cloud_cover_max_ran(nlev, frac, &
-           &   cum_cloud_cover, pair_cloud_cover)
+          &   cum_cloud_cover, pair_cloud_cover)
     else if (i_overlap_scheme == IOverlapExponential) then
       call cum_cloud_cover_exp_exp(nlev, frac, overlap_param, &
-           &   cum_cloud_cover, pair_cloud_cover, is_beta_overlap)
+          &   cum_cloud_cover, pair_cloud_cover, is_beta_overlap)
     else
       write(nulerr,'(a)') '*** Error: cloud overlap scheme not recognised'
       call radiation_abort()
@@ -175,7 +175,7 @@ contains
       do jlev = ibegin,iend-1
         if (overlap_param(jlev) > 0.0_jprb) then
           overlap_param_inhom(jlev) &
-               &  = overlap_param(jlev)**(1.0_jprb/decorrelation_scaling)
+              &  = overlap_param(jlev)**(1.0_jprb/decorrelation_scaling)
         end if
       end do
 
@@ -202,25 +202,251 @@ contains
 
         if (i_overlap_scheme /= IOverlapExponential) then
           call generate_column_exp_ran(ng, nlev, jg, random_stream, pdf_sampler, &
-               &  frac, pair_cloud_cover, &
-               &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
-               &  itrigger, iend, od_scaling)
+              &  frac, pair_cloud_cover, &
+              &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
+              &  itrigger, iend, od_scaling)
         else
           call generate_column_exp_exp(ng, nlev, jg, random_stream, pdf_sampler, &
-               &  frac, pair_cloud_cover, &
-               &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
-               &  itrigger, iend, od_scaling)
+              &  frac, pair_cloud_cover, &
+              &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
+              &  itrigger, iend, od_scaling)
         end if
         
       end do
 
     end if
 
-
     if (lhook) call dr_hook('radiation_cloud_generator:cloud_generator',1,hook_handle)
 
   end subroutine cloud_generator
 
+  !---------------------------------------------------------------------
+  ! Generate scaling factors for the cloud optical depth to represent
+  ! cloud overlap, the overlap of internal cloud inhomogeneities and
+  ! the fractional standard deviation of these inhomogeneities, for
+  ! use in a Monte Carlo Independent Column Approximation radiation
+  ! scheme. All returned profiles contain cloud, and the total cloud
+  ! cover is also returned, so the calling function can then do a
+  ! weighted average of clear and cloudy skies; this is a way to
+  ! reduce the Monte Carlo noise in profiles with low cloud cover.
+  subroutine cloud_generator_lr(ng, istartcol, iendcol, nlev, i_overlap_scheme, &
+    &  iseed, frac_threshold, &
+    &  frac, overlap_param, decorrelation_scaling, &
+    &  fractional_std, pdf_sampler, &
+    &  od_scaling, total_cloud_cover, &
+    &  is_beta_overlap)
+
+ use parkind1, only           : jprb
+ use yomhook,  only           : lhook, dr_hook
+ use radiation_io,   only     : nulerr, radiation_abort
+ use random_numbers_mix, only : randomnumberstream, &
+      initialize_random_numbers, uniform_distribution
+ use radiation_pdf_sampler, only : pdf_sampler_type
+ use radiation_cloud_cover, only : cum_cloud_cover_exp_ran, &
+      &       cum_cloud_cover_max_ran, cum_cloud_cover_exp_exp, &
+      &       IOverlapMaximumRandom, IOverlapExponentialRandom, &
+      &       IOverlapExponential
+
+ implicit none
+
+ ! Inputs
+ integer, intent(in)     :: ng    ! number of g points
+ integer, intent(in)     :: istartcol, iendcol
+ integer, intent(in)     :: nlev  ! number of model levels
+ integer, intent(in)     :: i_overlap_scheme
+ integer, intent(in)     :: iseed(:) ! seed for random number generator
+
+ ! Only cloud fractions above this threshold are considered to be
+ ! clouds
+ real(jprb), intent(in)  :: frac_threshold
+
+ ! Cloud fraction on full levels
+  ! cos: dimensions should be (istartcol:iendcol,nlev), but for some reason it does not validate
+ real(jprb), intent(in)  :: frac(:,:)
+
+ ! Cloud overlap parameter for interfaces between model layers,
+ ! where 0 indicates random overlap and 1 indicates maximum-random
+ ! overlap
+ ! cos: dimensions should be (istartcol:iendcol,nlev-1), but for some reason it does not validate
+ real(jprb), intent(in)  :: overlap_param(:,:)
+
+ ! Overlap parameter for internal inhomogeneities
+ real(jprb), intent(in)  :: decorrelation_scaling
+
+ ! Fractional standard deviation at each layer
+  ! cos: dimensions should be (istartcol:iendcol,nlev), but for some reason it does not validate
+ real(jprb), intent(in)  :: fractional_std(:,:)
+
+ ! Object for sampling from a lognormal or gamma distribution
+ type(pdf_sampler_type), intent(in) :: pdf_sampler
+
+ ! This routine has been coded using the "alpha" overlap parameter
+ ! of Hogan and Illingworth (2000). If the following logical is
+ ! present and true then the input is interpretted to be the "beta"
+ ! overlap parameter of Shonk et al. (2010), and needs to be
+ ! converted to alpha.
+ logical, intent(in), optional :: is_beta_overlap
+
+ ! Outputs
+
+ ! Cloud optical depth scaling factor, with 0 indicating clear sky
+ real(jprb), intent(out) :: od_scaling(istartcol:iendcol,nlev,ng)
+
+ ! Total cloud cover using cloud fraction and overlap parameter
+ real(jprb), intent(out) :: total_cloud_cover(istartcol:iendcol)
+
+ ! Local variables
+
+ ! Cumulative cloud cover from TOA to the base of each layer
+ ! cos: original (lev). Future can not be demoted since we move jcol innermost
+ ! we need to retain the independent jcol calculations
+ real(jprb) :: cum_cloud_cover(istartcol:iendcol,nlev)
+
+ ! Scaled random number for finding cloud
+ real(jprb) :: trigger
+
+ ! Uniform deviates between 0 and 1
+ ! cos: original (ng). Future demote to jcol only
+ real(jprb) :: rand_top(istartcol:iendcol,ng)
+
+ ! Overlap parameter of inhomogeneities
+ !cos: original (nlev). Future can not be demoted
+ real(jprb) :: overlap_param_inhom(istartcol:iendcol,nlev-1)
+
+ ! Seed for random number generator and stream for producing random
+ ! numbers
+ !cos: oritinal (scalar)
+ type(randomnumberstream) :: random_stream(istartcol:iendcol)
+ 
+ ! First and last cloudy layers
+ ! cos: origina (scalar). Need to remain like that
+ integer :: ibegin(istartcol:iendcol), iend(istartcol:iendcol)
+ integer :: itrigger
+
+ ! Loop index for model level and g-point
+ integer :: jlev, jg, jcol
+
+ ! Cloud cover of a pair of layers, and amount by which cloud at
+ ! next level increases total cloud cover as seen from above
+  ! cos: original (nlev+1). Future can not be demoted since we move jcol innermost
+ ! we need to retain the independent jcol calculations
+ real(jprb), dimension(istartcol:iendcol, nlev-1) :: pair_cloud_cover, overhang
+
+ real(jprb) :: hook_handle
+
+  if (lhook) call dr_hook('radiation_cloud_generator:cloud_generator',0,hook_handle)
+
+  do jcol = istartcol, iendcol
+
+    if (i_overlap_scheme == IOverlapExponentialRandom) then
+      call cum_cloud_cover_exp_ran(nlev, frac(jcol,:), overlap_param(jcol,:), &
+          &   cum_cloud_cover(jcol,:), pair_cloud_cover(jcol,:), is_beta_overlap)
+    else if (i_overlap_scheme == IOverlapMaximumRandom) then
+      call cum_cloud_cover_max_ran(nlev, frac(jcol,:), &
+          &   cum_cloud_cover(jcol,:), pair_cloud_cover(jcol,:))
+    else if (i_overlap_scheme == IOverlapExponential) then
+      call cum_cloud_cover_exp_exp(nlev, frac(jcol,:), overlap_param(jcol,:), &
+          &   cum_cloud_cover(jcol,:), pair_cloud_cover(jcol,:), is_beta_overlap)
+    else
+      write(nulerr,'(a)') '*** Error: cloud overlap scheme not recognised'
+      call radiation_abort()
+    end if
+
+    total_cloud_cover(jcol) = cum_cloud_cover(jcol,nlev);
+    do jlev = 1,nlev-1
+      overhang(jcol,jlev) = cum_cloud_cover(jcol,jlev+1)-cum_cloud_cover(jcol,jlev)
+    end do
+  enddo
+
+  do jcol = istartcol, iendcol
+    if (total_cloud_cover(jcol) < frac_threshold) then
+      ! Treat column as clear sky: calling function therefore will not
+      ! use od_scaling so we don't need to calculate it
+      total_cloud_cover(jcol) = 0.0_jprb
+
+    else
+      ! Cloud is present: need to calculate od_scaling
+
+      ! Find range of cloudy layers
+      jlev = 1
+      do while (frac(jcol,jlev) <= 0.0_jprb) 
+        jlev = jlev + 1
+      end do
+      ibegin(jcol) = jlev
+      iend(jcol) = jlev
+      do jlev = jlev+1,nlev
+        if (frac(jcol,jlev) > 0.0_jprb) then
+          iend(jcol) = jlev
+        end if
+      end do
+    endif
+  enddo
+
+  do jcol = istartcol, iendcol
+
+    if (total_cloud_cover(jcol) >= frac_threshold) then
+      ! ! Cloud is present: need to calculate od_scaling
+      ! Set overlap parameter of inhomogeneities
+      overlap_param_inhom(jcol,:) = overlap_param(jcol,:)
+
+      do jlev = ibegin(jcol),iend(jcol)-1
+        if (overlap_param(jcol,jlev) > 0.0_jprb) then
+          overlap_param_inhom(jcol,jlev) &
+              &  = overlap_param(jcol,jlev)**(1.0_jprb/decorrelation_scaling)
+        end if
+      end do
+      ! Reset optical depth scaling to clear skies
+      od_scaling(jcol,:,:) = 0.0_jprb
+    endif
+
+  enddo
+  do jcol=istartcol,iendcol
+    if (total_cloud_cover(jcol) >= frac_threshold) then
+
+              ! Expensive operation: initialize random number generator for
+        ! this column
+      call initialize_random_numbers(iseed(jcol)+997, random_stream(jcol))
+
+      ! Compute ng random numbers to use to locate cloud top
+      call uniform_distribution(rand_top(jcol,:), random_stream(jcol))
+    endif
+  enddo
+
+  do jg = 1,ng
+    do jcol=istartcol,iendcol
+      if (total_cloud_cover(jcol) >= frac_threshold) then
+      ! Loop over ng columns
+        ! cos: the random num generation was before out of the innermost loop. 
+        ! With the reordering had to be brought inside. We would need to refactor 
+        ! the random number generation subroutines to recover performance
+
+        ! Find the cloud top height corresponding to the current
+        ! random number, and store in itrigger
+        trigger = rand_top(jcol,jg) * total_cloud_cover(jcol)
+        jlev = ibegin(jcol)
+        do while (trigger > cum_cloud_cover(jcol,jlev) .and. jlev < iend(jcol))
+          jlev = jlev + 1
+        end do
+        itrigger = jlev
+
+        if (i_overlap_scheme /= IOverlapExponential) then
+          call generate_column_exp_ran_lr(ng, nlev, jg, random_stream(jcol), pdf_sampler, &
+              &  frac(jcol,:), pair_cloud_cover(jcol,:), &
+              &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom(jcol,:), &
+              &  itrigger, iend(jcol), od_scaling(jcol,:,:))
+        else
+          call generate_column_exp_exp_lr(ng, nlev, jg, random_stream(jcol), pdf_sampler, &
+              &  frac(jcol,:), pair_cloud_cover(jcol,:), &
+              &  cum_cloud_cover(jcol,:), overhang(jcol,:), fractional_std(jcol,:), overlap_param_inhom(jcol,:), &
+              &  itrigger, iend(jcol), od_scaling(jcol,:,:))
+        end if      
+      endif
+    end do
+  enddo
+
+  if (lhook) call dr_hook('radiation_cloud_generator:cloud_generator',1,hook_handle)
+
+end subroutine cloud_generator_lr
 
   !---------------------------------------------------------------------
   ! Generate a column of optical depth scalings using
@@ -356,6 +582,135 @@ contains
 
   end subroutine generate_column_exp_ran
 
+  subroutine generate_column_exp_ran_lr(ng, nlev, ig, random_stream, pdf_sampler, &
+    &  frac, pair_cloud_cover, &
+    &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
+    &  itrigger, iend, od_scaling)
+
+ use parkind1,              only : jprb
+ use radiation_pdf_sampler, only : pdf_sampler_type
+ use random_numbers_mix,    only : randomnumberstream, &
+      initialize_random_numbers, uniform_distribution
+
+
+ implicit none
+
+ ! Number of g points / columns, and number of current column
+ integer, intent(in) :: ng, ig
+
+ ! Number of levels
+ integer, intent(in) :: nlev
+
+ ! Stream for producing random numbers
+ type(randomnumberstream), intent(inout) :: random_stream
+
+ ! Object for sampling from a lognormal or gamma distribution
+ type(pdf_sampler_type), intent(in) :: pdf_sampler
+
+ ! Cloud fraction, cumulative cloud cover and fractional standard
+ ! deviation in each layer
+ real(jprb), intent(in), dimension(nlev) :: frac, cum_cloud_cover, fractional_std
+
+ ! Cloud cover of a pair of layers, and amount by which cloud at
+ ! next level increases total cloud cover as seen from above
+ real(jprb), intent(in), dimension(nlev-1) :: pair_cloud_cover, overhang
+
+ ! Overlap parameter of inhomogeneities
+ real(jprb), intent(in), dimension(nlev-1) :: overlap_param_inhom
+
+ ! Top of highest cloudy layer (in this subcolumn) and base of
+ ! lowest
+ integer, intent(in) :: itrigger, iend
+
+ ! Optical depth scaling to output
+ real(jprb), intent(inout), dimension(nlev,ng) :: od_scaling
+
+ ! Height indices
+ integer :: jlev, jcloud
+
+ ! Number of contiguous cloudy layers for which to compute optical
+ ! depth scaling
+ integer :: n_layers_to_scale
+
+ integer :: iy
+
+ ! Is it time to fill the od_scaling variable?
+ logical :: do_fill_od_scaling
+
+ real(jprb) :: rand_cloud(nlev)
+ real(jprb) :: rand_inhom1(nlev), rand_inhom2(nlev)
+
+ ! So far our vertically contiguous cloud contains only one layer
+ n_layers_to_scale = 1
+ iy = 0
+
+ ! Locate the clouds below this layer: first generate some more
+ ! random numbers
+ call uniform_distribution(rand_cloud(1:(iend+1-itrigger)),random_stream)
+
+ ! Loop from the layer below the local cloud top down to the
+ ! bottom-most cloudy layer
+ do jlev = itrigger+1,iend+1
+   do_fill_od_scaling = .false.
+   if (jlev <= iend) then
+     iy = iy+1
+     if (n_layers_to_scale > 0) then
+       ! There is a cloud above, in which case the probability
+       ! of cloud in the layer below is as follows
+       if (rand_cloud(iy)*frac(jlev-1) &
+            &  < frac(jlev) + frac(jlev-1) - pair_cloud_cover(jlev-1)) then
+         ! Add another cloudy layer
+         n_layers_to_scale = n_layers_to_scale + 1
+       else 
+         ! Reached the end of a contiguous set of cloudy layers and
+         ! will compute the optical depth scaling immediately.
+         do_fill_od_scaling = .true.
+       end if
+     else
+       ! There is clear-sky above, in which case the
+       ! probability of cloud in the layer below is as follows
+       if (rand_cloud(iy)*(cum_cloud_cover(jlev-1) - frac(jlev-1)) &
+            &  < pair_cloud_cover(jlev-1) - overhang(jlev-1) - frac(jlev-1)) then
+         ! A new cloud top
+         n_layers_to_scale = 1
+       end if
+     end if
+   else
+     ! We are at the bottom of the cloudy layers in the model,
+     ! so in a moment need to populate the od_scaling array
+     do_fill_od_scaling = .true.
+   end if
+
+   if (do_fill_od_scaling) then
+     ! We have a contiguous range of layers for which we
+     ! compute the od_scaling elements using some random
+     ! numbers
+     call uniform_distribution(rand_inhom1(1:n_layers_to_scale),random_stream)
+     call uniform_distribution(rand_inhom2(1:n_layers_to_scale),random_stream)
+
+     ! Loop through the sequence of cloudy layers
+     do jcloud = 2,n_layers_to_scale
+       ! Use second random number, and inhomogeneity overlap
+       ! parameter, to decide whether the first random number
+       ! should be repeated (corresponding to maximum overlap)
+       ! or not (corresponding to random overlap)
+       if (rand_inhom2(jcloud) &
+            &  < overlap_param_inhom(jlev-n_layers_to_scale+jcloud-2)) then
+         rand_inhom1(jcloud) = rand_inhom1(jcloud-1)
+       end if
+     end do
+     
+     ! Sample from a lognormal or gamma distribution to obtain
+     ! the optical depth scalings
+     call pdf_sampler%sample(fractional_std(jlev-n_layers_to_scale:jlev-1), &
+          & rand_inhom1(1:n_layers_to_scale), od_scaling(jlev-n_layers_to_scale:jlev-1,ig))
+
+     n_layers_to_scale = 0
+   end if
+       
+ end do
+
+end subroutine generate_column_exp_ran_lr
 
 
   !---------------------------------------------------------------------
@@ -481,5 +836,126 @@ contains
          &  is_cloudy(itrigger:iend))
         
   end subroutine generate_column_exp_exp
+
+  subroutine generate_column_exp_exp_lr(ng, nlev, ig, random_stream, pdf_sampler, &
+    &  frac, pair_cloud_cover, &
+    &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
+    &  itrigger, iend, od_scaling)
+
+ use parkind1,              only : jprb
+ use radiation_pdf_sampler, only : pdf_sampler_type
+ use random_numbers_mix,    only : randomnumberstream, &
+      initialize_random_numbers, uniform_distribution
+
+ implicit none
+
+ ! Number of g points / columns, and number of current column
+ integer, intent(in) :: ng, ig
+
+ ! Number of levels
+ integer, intent(in) :: nlev
+
+ ! Stream for producing random numbers
+ type(randomnumberstream), intent(inout) :: random_stream
+
+ ! Object for sampling from a lognormal or gamma distribution
+ type(pdf_sampler_type), intent(in) :: pdf_sampler
+
+ ! Cloud fraction, cumulative cloud cover and fractional standard
+ ! deviation in each layer
+ real(jprb), intent(in), dimension(nlev) :: frac, cum_cloud_cover, fractional_std
+
+ ! Cloud cover of a pair of layers, and amount by which cloud at
+ ! next level increases total cloud cover as seen from above
+ real(jprb), intent(in), dimension(nlev-1) :: pair_cloud_cover, overhang
+
+ ! Overlap parameter of inhomogeneities
+ real(jprb), intent(in), dimension(nlev-1) :: overlap_param_inhom
+
+ ! Top of highest cloudy layer (in this subcolumn) and base of
+ ! lowest
+ integer, intent(in) :: itrigger, iend
+
+ ! Optical depth scaling to output
+ real(jprb), intent(inout), dimension(nlev,ng) :: od_scaling
+
+ ! Height indices
+ integer :: jlev, jcloud
+
+ integer :: iy
+
+ real(jprb) :: rand_cloud(nlev)
+ real(jprb) :: rand_inhom1(nlev), rand_inhom2(nlev)
+
+ ! For each column analysed, this vector locates the clouds. It is
+ ! only actually used for Exp-Exp overlap
+ logical :: is_cloudy(nlev)
+
+ ! Number of contiguous cloudy layers for which to compute optical
+ ! depth scaling
+ integer :: n_layers_to_scale
+
+ iy = 0
+
+ is_cloudy = .false.
+ is_cloudy(itrigger) = .true.
+
+ ! Locate the clouds below this layer: first generate some more
+ ! random numbers
+ call uniform_distribution(rand_cloud(1:(iend+1-itrigger)),random_stream)
+
+ ! Loop from the layer below the local cloud top down to the
+ ! bottom-most cloudy layer
+ do jlev = itrigger+1,iend
+   iy = iy+1
+   if (is_cloudy(jlev-1)) then
+     ! There is a cloud above, in which case the probability
+     ! of cloud in the layer below is as follows
+     if (rand_cloud(iy)*frac(jlev-1) &
+          &  < frac(jlev) + frac(jlev-1) - pair_cloud_cover(jlev-1)) then
+       ! Add another cloudy layer
+       is_cloudy(jlev) = .true.
+     end if
+   else
+     ! There is clear-sky above, in which case the
+     ! probability of cloud in the layer below is as follows
+     if (rand_cloud(iy)*(cum_cloud_cover(jlev-1) - frac(jlev-1)) &
+          &  < pair_cloud_cover(jlev-1) - overhang(jlev-1) - frac(jlev-1)) then
+         ! A new cloud top
+       is_cloudy(jlev) = .true.
+     end if
+   end if
+ end do
+
+ ! We have a contiguous range of layers for which we compute the
+ ! od_scaling elements using some random numbers
+
+ ! In the Exp-Exp overlap scheme we do all layers at once
+ n_layers_to_scale = iend+1 - itrigger
+     
+ call uniform_distribution(rand_inhom1(1:n_layers_to_scale),random_stream)
+ call uniform_distribution(rand_inhom2(1:n_layers_to_scale),random_stream)
+     
+ ! Loop through the sequence of cloudy layers
+ do jcloud = 2,n_layers_to_scale
+   ! Use second random number, and inhomogeneity overlap
+   ! parameter, to decide whether the first random number
+   ! should be repeated (corresponding to maximum overlap)
+   ! or not (corresponding to random overlap)
+   if (rand_inhom2(jcloud) &
+        &  < overlap_param_inhom(iend-n_layers_to_scale+jcloud-1)) then
+     rand_inhom1(jcloud) = rand_inhom1(jcloud-1)
+   end if
+ end do
+     
+ ! Sample from a lognormal or gamma distribution to obtain the
+ ! optical depth scalings, calling the faster masked version and
+ ! assuming values outside the range itrigger:iend are already zero
+ call pdf_sampler%masked_sample(n_layers_to_scale, &
+      &  fractional_std(itrigger:iend), &
+      &  rand_inhom1(1:n_layers_to_scale), od_scaling(itrigger:iend,ig), &
+      &  is_cloudy(itrigger:iend))
+     
+end subroutine generate_column_exp_exp_lr
 
 end module radiation_cloud_generator
