@@ -129,7 +129,6 @@ program ecrad_driver
     stop 'Failed to read name of namelist file as string of length < 512'
   end if
 
-
   ! Read "radiation" namelist into radiation configuration type
   call config%read(file_name=file_name)
 

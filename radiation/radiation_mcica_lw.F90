@@ -249,9 +249,6 @@ contains
         ! used in cloudy-sky case
         ref_clear = 0.0_jprb
       end if
-    ! cos: todo once all fields are promoted to 3D
-    end do  
-    do jcol = istartcol,iendcol
 
       do jlev = 1,nlev
         do jcol = istartcol,iendcol
