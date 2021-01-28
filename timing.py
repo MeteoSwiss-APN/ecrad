@@ -46,14 +46,11 @@ def cli(ref_file, cur_file):
 
     a = cur.loc[selection, "time"]
     b = ref.loc[selection, "time"]
+    c = b / a
 
-    print("\ncurrent time")
-    print("-------------------------------------")
-    print(a)
-
-    print("\nreference time")
-    print("-------------------------------------")
-    print(b)
+    d = pd.concat([b, a, c], axis=1)
+    d.columns = ["reference", "current", "speedup"]
+    print(d)
 
 
 if __name__ == "__main__":
