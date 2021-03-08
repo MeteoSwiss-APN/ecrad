@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!--
+Author:    Mikhail Zhigun
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+<xs:element name="driver_report">
+  <xs:complexType>
+    <xs:sequence>
+       <xs:element name = 'step' type = 'TestStep' minOccurs = '0' maxOccurs = 'unbounded' />
+    </xs:sequence>
+  </xs:complexType>
+</xs:element>
+
+<xs:complexType name = "TestStep">
+  <xs:attribute name="name" type="xs:string" use="required"/>
+  <xs:attribute name="start_timestamp_us" type="xs:unsignedLong" use="required"/>
+  <xs:attribute name="end_timestamp_us" type="xs:unsignedLong" use="required"/>
+  <xs:attribute name="result" type="xs:boolean" use="required"/>
+  <xs:attribute name="error_message" type="xs:string"/>
+</xs:complexType>
+
+</xs:schema>

@@ -87,6 +87,8 @@ module radiation_single_level
     procedure :: deallocate => deallocate_single_level
     procedure :: init_seed_simple
     procedure :: get_albedos
+    procedure :: get_albedos_sw
+    procedure :: get_albedos_lw
     procedure :: out_of_physical_bounds
 
   end type single_level_type
@@ -224,9 +226,38 @@ contains
     real(jprb), intent(out), dimension(config%n_g_sw, istartcol:iendcol) &
          &  :: sw_albedo_direct, sw_albedo_diffuse
 
+    real(jprb) :: hook_handle
+
+    if (lhook) call dr_hook('radiation_single_level:get_albedos',0,hook_handle)
+
+    call get_albedos_sw(this, istartcol, iendcol, config, sw_albedo_direct, sw_albedo_diffuse)
+    call get_albedos_lw(this, istartcol, iendcol, config, lw_albedo)
+
+    if (lhook) call dr_hook('radiation_single_level:get_albedos',1,hook_handle)
+
+  end subroutine get_albedos
+
+  !---------------------------------------------------------------------
+  ! Extract the shortwave and longwave surface albedos in each g-point
+  subroutine get_albedos_sw(this, istartcol, iendcol, config, &
+       &                 sw_albedo_direct, sw_albedo_diffuse)
+
+    use radiation_config, only : config_type
+    use radiation_io,     only : nulerr, radiation_abort
+    use yomhook,          only : lhook, dr_hook
+
+    class(single_level_type), intent(in) :: this
+    type(config_type),        intent(in) :: config
+    integer,                  intent(in) :: istartcol, iendcol
+
+    ! Direct and diffuse shortwave surface albedo in each shortwave
+    ! g-point; note that these are weighted averages of the values
+    ! from individual tiles
+    real(jprb), intent(out), dimension(config%n_g_sw, istartcol:iendcol) &
+         &  :: sw_albedo_direct, sw_albedo_diffuse
+
     ! Temporary storage of albedo in ecRad bands
     real(jprb) :: sw_albedo_band(istartcol:iendcol, config%n_bands_sw)
-    real(jprb) :: lw_albedo_band (istartcol:iendcol, config%n_bands_lw)
 
     ! Number of albedo bands
     integer :: nalbedoband
@@ -254,7 +285,7 @@ contains
         do jalbedoband = 1,nalbedoband
           if (config%sw_albedo_weights(jalbedoband,jband) /= 0.0_jprb) then
             sw_albedo_band(istartcol:iendcol,jband) &
-                 &  = sw_albedo_band(istartcol:iendcol,jband) & 
+                 &  = sw_albedo_band(istartcol:iendcol,jband) &
                  &  + config%sw_albedo_weights(jalbedoband,jband) &
                  &    * this%sw_albedo(istartcol:iendcol, jalbedoband)
           end if
@@ -269,7 +300,7 @@ contains
           do jalbedoband = 1,nalbedoband
             if (config%sw_albedo_weights(jalbedoband,jband) /= 0.0_jprb) then
               sw_albedo_band(istartcol:iendcol,jband) &
-                   &  = sw_albedo_band(istartcol:iendcol,jband) & 
+                   &  = sw_albedo_band(istartcol:iendcol,jband) &
                    &  + config%sw_albedo_weights(jalbedoband,jband) &
                    &    * this%sw_albedo_direct(istartcol:iendcol, jalbedoband)
             end if
@@ -292,11 +323,46 @@ contains
       end if
     end if
 
+    if (lhook) call dr_hook('radiation_single_level:get_albedos_sw',1,hook_handle)
+
+  end subroutine get_albedos_sw
+
+  !---------------------------------------------------------------------
+  ! Extract the shortwave and longwave surface albedos in each g-point
+  subroutine get_albedos_lw(this, istartcol, iendcol, config, lw_albedo)
+
+    use radiation_config, only : config_type
+    use radiation_io,     only : nulerr, radiation_abort
+    use yomhook,          only : lhook, dr_hook
+
+    class(single_level_type), intent(in) :: this
+    type(config_type),        intent(in) :: config
+    integer,                  intent(in) :: istartcol, iendcol
+
+    ! The longwave albedo of the surface in each longwave g-point;
+    ! note that these are weighted averages of the values from
+    ! individual tiles
+    real(jprb), intent(out), optional &
+         &  :: lw_albedo(config%n_g_lw, istartcol:iendcol)
+
+    ! Temporary storage of albedo in ecRad bands
+    real(jprb) :: lw_albedo_band (istartcol:iendcol, config%n_bands_lw)
+
+    ! Number of albedo bands
+    integer :: nalbedoband
+
+    ! Loop indices for ecRad bands and albedo bands
+    integer :: jband, jalbedoband
+
+    real(jprb) :: hook_handle
+
+    if (lhook) call dr_hook('radiation_single_level:get_albedos_lw',0,hook_handle)
+
     if (present(lw_albedo)) then
       if (config%use_canopy_full_spectrum_lw) then
         if (config%n_g_lw /= size(this%lw_emissivity,2)) then
           write(nulerr,'(a)') '*** Error: single_level%lw_emissivity has the wrong number of spectral intervals'
-          call radiation_abort()   
+          call radiation_abort()
         end if
         lw_albedo = 1.0_jprb - transpose(this%lw_emissivity(istartcol:iendcol,:))
       else if (.not. config%do_nearest_spectral_lw_emiss) then
@@ -307,7 +373,7 @@ contains
           do jalbedoband = 1,nalbedoband
             if (config%lw_emiss_weights(jalbedoband,jband) /= 0.0_jprb) then
               lw_albedo_band(istartcol:iendcol,jband) &
-                   &  = lw_albedo_band(istartcol:iendcol,jband) & 
+                   &  = lw_albedo_band(istartcol:iendcol,jband) &
                    &  + config%lw_emiss_weights(jalbedoband,jband) &
                    &    * (1.0_jprb-this%lw_emissivity(istartcol:iendcol, jalbedoband))
             end if
@@ -322,9 +388,9 @@ contains
       end if
     end if
 
-    if (lhook) call dr_hook('radiation_single_level:get_albedos',1,hook_handle)
+    if (lhook) call dr_hook('radiation_single_level:get_albedos_lw',1,hook_handle)
 
-  end subroutine get_albedos
+  end subroutine get_albedos_lw
 
 
   !---------------------------------------------------------------------

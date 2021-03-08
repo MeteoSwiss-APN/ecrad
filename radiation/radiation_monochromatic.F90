@@ -21,8 +21,8 @@ module radiation_monochromatic
 
   implicit none
 
-  public  :: setup_gas_optics, gas_optics, set_gas_units, &
-       &     setup_cloud_optics, cloud_optics,            &
+  public  :: setup_gas_optics, gas_optics, gas_optics_lw, gas_optics_sw, set_gas_units, &
+       &     setup_cloud_optics, cloud_optics, cloud_optics_sw, cloud_optics_lw, &
        &     setup_aerosol_optics, add_aerosol_optics
 
 contains
@@ -98,7 +98,6 @@ contains
 
   end subroutine setup_aerosol_optics
 
-
   !---------------------------------------------------------------------
   ! Compute gas optical depths, shortwave scattering, Planck function
   ! and incoming shortwave radiation at top-of-atmosphere
@@ -150,6 +149,54 @@ contains
     real(jprb), dimension(config%n_g_sw,istartcol:iendcol), intent(out) :: &
          &   incoming_sw
     
+    call gas_optics_sw(ncol,nlev,istartcol,iendcol, &
+       config, single_level, thermodynamics, gas, od_sw, &
+       ssa_sw, incoming_sw)
+
+    call gas_optics_lw(ncol,nlev,istartcol,iendcol, &
+       config, single_level, thermodynamics, gas, lw_albedo, &
+       od_lw, planck_hl, lw_emission)
+
+  end subroutine gas_optics
+
+  !---------------------------------------------------------------------
+  ! Compute gas optical depths, shortwave scattering
+  ! and incoming shortwave radiation at top-of-atmosphere
+  ! TODO: find a way to test this function
+  subroutine gas_optics_sw(ncol,nlev,istartcol,iendcol, &
+       config, single_level, thermodynamics, gas, od_sw, &
+       ssa_sw, incoming_sw)
+
+    use parkind1,                 only : jprb
+    use radiation_config,         only : config_type
+    use radiation_thermodynamics, only : thermodynamics_type
+    use radiation_single_level,   only : single_level_type
+    use radiation_gas,            only : gas_type
+    use radiation_constants,      only : Pi, StefanBoltzmann
+
+    ! Inputs
+    integer, intent(in) :: ncol               ! number of columns
+    integer, intent(in) :: nlev               ! number of model levels
+    integer, intent(in) :: istartcol, iendcol ! range of columns to process
+    type(config_type),        intent(in) :: config
+    type(single_level_type),  intent(in) :: single_level
+    type(thermodynamics_type),intent(in) :: thermodynamics
+    type(gas_type),           intent(in) :: gas
+
+    ! Outputs
+
+    ! Gaseous layer optical depth in shortwave, and
+    ! shortwave single scattering albedo (i.e. fraction of extinction
+    ! due to Rayleigh scattering) at each g-point
+    real(jprb), dimension(config%n_g_sw,nlev,istartcol:iendcol), intent(out) :: &
+         &   od_sw, ssa_sw
+
+    ! The incoming shortwave flux into a plane perpendicular to the
+    ! incoming radiation at top-of-atmosphere in each of the shortwave
+    ! g-points
+    real(jprb), dimension(config%n_g_sw,istartcol:iendcol), intent(out) :: &
+         &   incoming_sw
+
     ! Ratio of the optical depth of the entire atmospheric column that
     ! is in the current layer
     real(jprb), dimension(istartcol:iendcol) :: extinction_fraction
@@ -172,9 +219,8 @@ contains
            &   (thermodynamics%pressure_hl(istartcol:iendcol,jlev+1) &
            &   -thermodynamics%pressure_hl(istartcol:iendcol,jlev)) &
            &   /thermodynamics%pressure_hl(istartcol:iendcol,nlev)
-      
+
       ! Assign longwave and shortwave optical depths
-      od_lw(1,jlev,:) = config%mono_lw_total_od*extinction_fraction
       od_sw(1,jlev,:) = config%mono_sw_total_od*extinction_fraction
     end do
 
@@ -184,6 +230,77 @@ contains
 
     ! Entire shortwave spectrum represented in one band
     incoming_sw(1,:) = single_level%solar_irradiance
+
+  end subroutine gas_optics_sw
+
+  !---------------------------------------------------------------------
+  ! Compute gas optical depths, shortwave scattering, Planck function
+  ! and incoming shortwave radiation at top-of-atmosphere
+  ! TODO: find a way to test this function
+  subroutine gas_optics_lw(ncol,nlev,istartcol,iendcol, &
+       config, single_level, thermodynamics, gas, lw_albedo, &
+       od_lw, planck_hl, lw_emission)
+
+    use parkind1,                 only : jprb
+    use radiation_config,         only : config_type
+    use radiation_thermodynamics, only : thermodynamics_type
+    use radiation_single_level,   only : single_level_type
+    use radiation_gas,            only : gas_type
+    use radiation_constants,      only : Pi, StefanBoltzmann
+
+    ! Inputs
+    integer, intent(in) :: ncol               ! number of columns
+    integer, intent(in) :: nlev               ! number of model levels
+    integer, intent(in) :: istartcol, iendcol ! range of columns to process
+    type(config_type),        intent(in) :: config
+    type(single_level_type),  intent(in) :: single_level
+    type(thermodynamics_type),intent(in) :: thermodynamics
+    type(gas_type),           intent(in) :: gas
+
+    ! Longwave albedo of the surface
+    real(jprb), dimension(config%n_g_lw,istartcol:iendcol), &
+         &  intent(in) :: lw_albedo
+
+    ! Outputs
+
+    ! Gaseous layer optical depth in longwave at each g-point
+    real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol), intent(out) :: &
+         &   od_lw
+
+    ! The Planck function (emitted flux from a black body) at half
+    ! levels and at the surface at each longwave g-point
+    real(jprb), dimension(config%n_g_lw,nlev+1,istartcol:iendcol), intent(out) :: &
+         &   planck_hl
+    real(jprb), dimension(config%n_g_lw,istartcol:iendcol), intent(out) :: &
+         &   lw_emission
+
+
+    ! Ratio of the optical depth of the entire atmospheric column that
+    ! is in the current layer
+    real(jprb), dimension(istartcol:iendcol) :: extinction_fraction
+
+    ! In the monochromatic model, the absorption by the atmosphere is
+    ! assumed proportional to the mass in each layer, so is defined in
+    ! terms of a total zenith optical depth and then distributed with
+    ! height according to the pressure.
+    !real(jprb), parameter :: total_od_sw = 0.10536_jprb ! Transmittance 0.9
+    !real(jprb), parameter :: total_od_lw = 1.6094_jprb  ! Transmittance 0.2
+
+    integer :: jlev
+
+    do jlev = 1,nlev
+      ! The fraction of the total optical depth in the current layer
+      ! is proportional to the fraction of the mass of the atmosphere
+      ! in the current layer, computed from pressure assuming
+      ! hydrostatic balance
+      extinction_fraction = &
+           &   (thermodynamics%pressure_hl(istartcol:iendcol,jlev+1) &
+           &   -thermodynamics%pressure_hl(istartcol:iendcol,jlev)) &
+           &   /thermodynamics%pressure_hl(istartcol:iendcol,nlev)
+
+      ! Assign longwave and shortwave optical depths
+      od_lw(1,jlev,:) = config%mono_lw_total_od*extinction_fraction
+    end do
 
     if (single_level%is_simple_surface) then
       if (config%mono_lw_wavelength <= 0.0_jprb) then
@@ -208,8 +325,7 @@ contains
       lw_emission = transpose(single_level%lw_emission)
     end if
 
-  end subroutine gas_optics
-
+  end subroutine gas_optics_lw
 
   !---------------------------------------------------------------------
   ! Compute cloud optical depth, single-scattering albedo and
@@ -249,6 +365,42 @@ contains
     real(jprb), dimension(config%n_g_sw,nlev,istartcol:iendcol), intent(out) :: &
          &   od_sw_cloud, ssa_sw_cloud, g_sw_cloud
 
+    call cloud_optics_sw(nlev,istartcol,iendcol, &
+       &   config, thermodynamics, cloud, &
+       &   od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
+    call cloud_optics_lw(nlev,istartcol,iendcol, &
+       &   config, thermodynamics, cloud, &
+       &   od_lw_cloud, ssa_lw_cloud, g_lw_cloud)
+  end subroutine cloud_optics
+
+  !---------------------------------------------------------------------
+  ! Compute cloud optical depth, single-scattering albedo and
+  ! g factor in the longwave and shortwave
+  subroutine cloud_optics_sw(nlev,istartcol,iendcol, &
+       &   config, thermodynamics, cloud, &
+       &   od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
+
+    use parkind1,                 only : jprb
+    use radiation_config,         only : config_type
+    use radiation_thermodynamics, only : thermodynamics_type
+    use radiation_cloud,          only : cloud_type
+    use radiation_constants,      only : AccelDueToGravity, &
+         &   DensityLiquidWater, DensitySolidIce
+
+    ! Inputs
+    integer, intent(in) :: nlev               ! number of model levels
+    integer, intent(in) :: istartcol, iendcol ! range of columns to process
+    type(config_type), intent(in) :: config
+    type(thermodynamics_type),intent(in) :: thermodynamics
+    type(cloud_type),   intent(in) :: cloud
+
+    ! Outputs
+
+    ! Layer optical depth, single scattering albedo and g factor of
+    ! clouds in each shortwave band
+    real(jprb), dimension(config%n_g_sw,nlev,istartcol:iendcol), intent(out) :: &
+         &   od_sw_cloud, ssa_sw_cloud, g_sw_cloud
+
     ! In-cloud liquid and ice water path in a layer, in kg m-2
     real(jprb), dimension(nlev,istartcol:iendcol) :: lwp_kg_m2, iwp_kg_m2
 
@@ -276,22 +428,17 @@ contains
     end do
 
     ! Geometric optics approximation: particles treated as much larger
-    ! than the wavelength in both shortwave and longwave
+    ! than the wavelength in both shortwave
     od_sw_cloud(1,:,:) &
          &   = (3.0_jprb/(2.0_jprb*DensityLiquidWater)) &
          &   * lwp_kg_m2 / transpose(cloud%re_liq(istartcol:iendcol,:)) &
          &   + (3.0_jprb / (2.0_jprb * DensitySolidIce)) &
          &   * iwp_kg_m2 / transpose(cloud%re_ice(istartcol:iendcol,:))
-    od_lw_cloud(1,:,:) = lwp_kg_m2 * 137.22_jprb &
-         &   + (3.0_jprb / (2.0_jprb * DensitySolidIce)) &
-         &   * iwp_kg_m2 / transpose(cloud%re_ice(istartcol:iendcol,:))
 
     if (config%iverbose >= 4) then
       do jcol = istartcol,iendcol
-        write(*,'(a,i0,a,f7.3,a,f7.3)') 'Profile ', jcol, ': shortwave optical depth = ', &
-             &  sum(od_sw_cloud(1,:,jcol)*cloud%fraction(jcol,:)), &
-             &  ', longwave optical depth = ', &
-             &  sum(od_lw_cloud(1,:,jcol)*cloud%fraction(jcol,:))
+        write(*,'(a,i0,a,f7.3)') 'Profile ', jcol, ': shortwave optical depth = ', &
+             &  sum(od_sw_cloud(1,:,jcol)*cloud%fraction(jcol,:))
         !    print *, 'LWP = ', sum(lwp_kg_m2(:,istartcol)*cloud%fraction(istartcol,:))
       end do
     end if
@@ -302,6 +449,81 @@ contains
     ! In-place delta-Eddington scaling
     call delta_eddington(od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
 
+  end subroutine cloud_optics_sw
+
+  !---------------------------------------------------------------------
+  ! Compute cloud optical depth, single-scattering albedo and
+  ! g factor in the longwave and shortwave
+  subroutine cloud_optics_lw(nlev,istartcol,iendcol, &
+       &   config, thermodynamics, cloud, &
+       &   od_lw_cloud, ssa_lw_cloud, g_lw_cloud)
+
+    use parkind1,                 only : jprb
+    use radiation_config,         only : config_type
+    use radiation_thermodynamics, only : thermodynamics_type
+    use radiation_cloud,          only : cloud_type
+    use radiation_constants,      only : AccelDueToGravity, &
+         &   DensityLiquidWater, DensitySolidIce
+
+    ! Inputs
+    integer, intent(in) :: nlev               ! number of model levels
+    integer, intent(in) :: istartcol, iendcol ! range of columns to process
+    type(config_type), intent(in) :: config
+    type(thermodynamics_type),intent(in) :: thermodynamics
+    type(cloud_type),   intent(in) :: cloud
+
+    ! Outputs
+
+    ! Layer optical depth, single scattering albedo and g factor of
+    ! clouds in each longwave band, where the latter two
+    ! variables are only defined if cloud longwave scattering is
+    ! enabled (otherwise both are treated as zero).
+    real(jprb), dimension(config%n_bands_lw,nlev,istartcol:iendcol), intent(out) :: &
+         &   od_lw_cloud
+    real(jprb), dimension(config%n_bands_lw_if_scattering,nlev,istartcol:iendcol), &
+         &   intent(out) :: ssa_lw_cloud, g_lw_cloud
+
+    ! In-cloud liquid and ice water path in a layer, in kg m-2
+    real(jprb), dimension(nlev,istartcol:iendcol) :: lwp_kg_m2, iwp_kg_m2
+
+    integer  :: jlev, jcol
+
+    ! Factor to convert from gridbox-mean mass mixing ratio to
+    ! in-cloud water path
+    real(jprb) :: factor
+
+    ! Convert cloud mixing ratio into liquid and ice water path
+    ! in each layer
+    do jlev = 1, nlev
+      do jcol = istartcol, iendcol
+        ! Factor to convert from gridbox-mean mass mixing ratio to
+        ! in-cloud water path involves the pressure difference in
+        ! Pa, acceleration due to gravity and cloud fraction
+        ! adjusted to avoid division by zero.
+        factor = ( thermodynamics%pressure_hl(jcol,jlev+1)    &
+             &    -thermodynamics%pressure_hl(jcol,jlev  )  ) &
+             &   / (AccelDueToGravity &
+             &   * max(epsilon(1.0_jprb), cloud%fraction(jcol,jlev)))
+        lwp_kg_m2(jlev,jcol) = factor * cloud%q_liq(jcol,jlev)
+        iwp_kg_m2(jlev,jcol) = factor * cloud%q_ice(jcol,jlev)
+      end do
+    end do
+
+    ! Geometric optics approximation: particles treated as much larger
+    ! than the wavelength in longwave
+    od_lw_cloud(1,:,:) = lwp_kg_m2 * 137.22_jprb &
+         &   + (3.0_jprb / (2.0_jprb * DensitySolidIce)) &
+         &   * iwp_kg_m2 / transpose(cloud%re_ice(istartcol:iendcol,:))
+
+    if (config%iverbose >= 4) then
+      do jcol = istartcol,iendcol
+        write(*,'(a,i0,a,f7.3)') 'Profile ', jcol, &
+             &  ', longwave optical depth = ', &
+             &  sum(od_lw_cloud(1,:,jcol)*cloud%fraction(jcol,:))
+        !    print *, 'LWP = ', sum(lwp_kg_m2(:,istartcol)*cloud%fraction(istartcol,:))
+      end do
+    end if
+
     if (config%do_lw_cloud_scattering) then
       ssa_lw_cloud = config%mono_lw_single_scattering_albedo
       g_lw_cloud   = config%mono_lw_asymmetry_factor
@@ -309,7 +531,7 @@ contains
       call delta_eddington(od_lw_cloud, ssa_lw_cloud, g_lw_cloud)
     end if
 
-  end subroutine cloud_optics
+  end subroutine cloud_optics_lw
 
 
   !---------------------------------------------------------------------

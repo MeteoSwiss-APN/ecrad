@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!--
+Author:    Mikhail Zhigun
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+<xs:element name="cpu_regression_test_report">
+  <xs:complexType>
+    <xs:sequence>
+       <xs:element name = 'step' type = 'TestStep' minOccurs = '0' maxOccurs = 'unbounded' />
+    </xs:sequence>
+    <xs:attribute name="cpu_model" type="xs:string"/>
+    <xs:attribute name="openmp_enabled" type="xs:boolean"/>
+  </xs:complexType>
+</xs:element>
+
+<xs:complexType name = "TestStep">
+  <xs:attribute name="name" type="xs:string" use="required"/>
+  <xs:attribute name="avg_duration_us" type="xs:unsignedLong" use="required"/>
+  <xs:attribute name="std_dev_duration_us" type="xs:unsignedLong" use="required"/>
+  <xs:attribute name="max_duration_us" type="xs:unsignedLong" use="required"/>
+</xs:complexType>
+
+</xs:schema>

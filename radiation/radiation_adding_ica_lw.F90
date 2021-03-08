@@ -71,8 +71,9 @@ contains
 
     real(jprb) :: hook_handle
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_adding_ica_lw:adding_ica_lw',0,hook_handle)
-
+#endif
     albedo(:,nlev+1) = albedo_surf
 
     ! At the surface, the source is thermal emission
@@ -126,15 +127,16 @@ contains
       end do
     end do
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_adding_ica_lw:adding_ica_lw',1,hook_handle)
-
+#endif
   end subroutine adding_ica_lw
 
 
   !---------------------------------------------------------------------
   ! Use the scalar "adding" method to compute longwave flux profiles,
   ! including scattering in cloudy layers only.
-  subroutine fast_adding_ica_lw(ncol, nlev, &
+  pure subroutine fast_adding_ica_lw(ncol, nlev, &
        &  reflectance, transmittance, source_up, source_dn, emission_surf, albedo_surf, &
        &  is_clear_sky_layer, i_cloud_top, flux_dn_clear, &
        &  flux_up, flux_dn)
@@ -186,8 +188,11 @@ contains
 
     real(jprb) :: hook_handle
 
-    if (lhook) call dr_hook('radiation_adding_ica_lw:fast_adding_ica_lw',0,hook_handle)
+    !$acc routine worker
 
+#ifdef DR_HOOK
+    if (lhook) call dr_hook('radiation_adding_ica_lw:fast_adding_ica_lw',0,hook_handle)
+#endif
     ! Copy over downwelling fluxes above cloud from clear sky
     flux_dn(:,1:i_cloud_top) = flux_dn_clear(:,1:i_cloud_top)
 
@@ -200,9 +205,11 @@ contains
     ! the entire earth/atmosphere system below that half-level, and
     ! also the "source", which is the upwelling flux due to emission
     ! below that level
+    !$acc loop seq
     do jlev = nlev,i_cloud_top,-1
       if (is_clear_sky_layer(jlev)) then
         ! Reflectance of this layer is zero, simplifying the expression
+        !$acc loop independent worker
         do jcol = 1,ncol
           albedo(jcol,jlev) = transmittance(jcol,jlev)*transmittance(jcol,jlev)*albedo(jcol,jlev+1)
           source(jcol,jlev) = source_up(jcol,jlev) &
@@ -211,6 +218,7 @@ contains
         end do
       else
         ! Loop over columns; explicit loop seems to be faster
+        !$acc loop independent worker
         do jcol = 1,ncol
           ! Lacis and Hansen (1974) Eq 33, Shonk & Hogan (2008) Eq 10:
           inv_denominator(jcol,jlev) = 1.0_jprb &
@@ -230,14 +238,17 @@ contains
     ! Compute the fluxes above the highest cloud
     flux_up(:,i_cloud_top) = source(:,i_cloud_top) &
          &                 + albedo(:,i_cloud_top)*flux_dn(:,i_cloud_top)
+    !$acc loop seq
     do jlev = i_cloud_top-1,1,-1
       flux_up(:,jlev) = transmittance(:,jlev)*flux_up(:,jlev+1) + source_up(:,jlev)
     end do
 
     ! Work back down through the atmosphere from cloud top computing
     ! the fluxes at each half-level
+    !$acc loop seq
     do jlev = i_cloud_top,nlev
       if (is_clear_sky_layer(jlev)) then
+        !$acc loop independent worker
         do jcol = 1,ncol
           flux_dn(jcol,jlev+1) = transmittance(jcol,jlev)*flux_dn(jcol,jlev) &
                &               + source_dn(jcol,jlev)
@@ -245,6 +256,7 @@ contains
                &               + source(jcol,jlev+1)
         end do
       else
+        !$acc loop independent worker
         do jcol = 1,ncol
           ! Shonk & Hogan (2008) Eq 14 (after simplification):
           flux_dn(jcol,jlev+1) &
@@ -258,8 +270,9 @@ contains
       end if
     end do
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_adding_ica_lw:fast_adding_ica_lw',1,hook_handle)
-
+#endif
   end subroutine fast_adding_ica_lw
 
 
@@ -269,7 +282,7 @@ contains
   ! fluxes from the transmission and emission of each layer, and then
   ! passing back up through the atmosphere to compute the upwelling
   ! fluxes in the same way.
-  subroutine calc_fluxes_no_scattering_lw(ncol, nlev, &
+  pure subroutine calc_fluxes_no_scattering_lw(ncol, nlev, &
        &  transmittance, source_up, source_dn, emission_surf, albedo_surf, flux_up, flux_dn)
 
     use parkind1, only           : jprb
@@ -295,32 +308,45 @@ contains
     real(jprb), intent(out), dimension(ncol, nlev+1) :: flux_up, flux_dn
     
     ! Loop index for model level
-    integer :: jlev
+    integer :: jlev, jcol
 
     real(jprb) :: hook_handle
 
-    if (lhook) call dr_hook('radiation_adding_ica_lw:calc_fluxes_no_scattering_lw',0,hook_handle)
+    !$acc routine worker
 
+#ifdef DR_HOOK
+    if (lhook) call dr_hook('radiation_adding_ica_lw:calc_fluxes_no_scattering_lw',0,hook_handle)
+#endif
     ! At top-of-atmosphere there is no diffuse downwelling radiation
     flux_dn(:,1) = 0.0_jprb
 
     ! Work down through the atmosphere computing the downward fluxes
     ! at each half-level
+    !$acc loop seq
     do jlev = 1,nlev
-      flux_dn(:,jlev+1) = transmittance(:,jlev)*flux_dn(:,jlev) + source_dn(:,jlev)
+      !$acc loop independent worker
+      do jcol = 1, ncol
+        flux_dn(jcol,jlev+1) = transmittance(jcol,jlev)*flux_dn(jcol,jlev) + source_dn(jcol,jlev)
+      end do
     end do
 
     ! Surface reflection and emission
-    flux_up(:,nlev+1) = emission_surf + albedo_surf * flux_dn(:,nlev+1)
+    do jcol = 1, ncol
+        flux_up(jcol,nlev+1) = emission_surf(jcol) + albedo_surf(jcol) * flux_dn(jcol,nlev+1)
+    end do
 
     ! Work back up through the atmosphere computing the upward fluxes
     ! at each half-level
+    !$acc loop seq
     do jlev = nlev,1,-1
-      flux_up(:,jlev) = transmittance(:,jlev)*flux_up(:,jlev+1) + source_up(:,jlev)
+      !$acc loop independent worker
+      do jcol = 1, ncol
+        flux_up(jcol,jlev) = transmittance(jcol,jlev)*flux_up(jcol,jlev+1) + source_up(jcol,jlev)
+      end do
     end do
-    
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_adding_ica_lw:calc_fluxes_no_scattering_lw',1,hook_handle)
-
+#endif
   end subroutine calc_fluxes_no_scattering_lw
 
 end module radiation_adding_ica_lw

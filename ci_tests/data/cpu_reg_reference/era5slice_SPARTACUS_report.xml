@@ -1,0 +1,6 @@
+<cpu_regression_test_report cpu_model="Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz" openmp_enabled="false">
+    <step name="reading input data" avg_duration_us="15902" std_dev_duration_us="307" max_duration_us="16409"/>
+    <step name="allocating memory" avg_duration_us="5161" std_dev_duration_us="234" max_duration_us="5493"/>
+    <step name="computation" avg_duration_us="5440063" std_dev_duration_us="94430" max_duration_us="5685716"/>
+    <step name="writing output data" avg_duration_us="5610" std_dev_duration_us="336" max_duration_us="6348"/>
+</cpu_regression_test_report>

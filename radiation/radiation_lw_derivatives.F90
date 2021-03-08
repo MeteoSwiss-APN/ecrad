@@ -64,8 +64,9 @@ contains
 
     real(jprb) :: hook_handle
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_lw_derivatives:calc_lw_derivatives_ica',0,hook_handle)
-
+#endif
     ! Initialize the derivatives at the surface
     lw_derivatives_g = flux_up_surf / sum(flux_up_surf)
     lw_derivatives(icol, nlev+1) = 1.0_jprb
@@ -77,8 +78,9 @@ contains
       lw_derivatives(icol,jlev) = sum(lw_derivatives_g)
     end do
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_lw_derivatives:calc_lw_derivatives_ica',1,hook_handle)
-
+#endif
   end subroutine calc_lw_derivatives_ica
 
 
@@ -111,8 +113,9 @@ contains
 
     real(jprb) :: hook_handle
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_lw_derivatives:modify_lw_derivatives_ica',0,hook_handle)
-
+#endif
     ! Initialize the derivatives at the surface
     lw_derivatives_g = flux_up_surf / sum(flux_up_surf)
     ! This value must be 1 so no weighting applied
@@ -126,8 +129,9 @@ contains
            &                    + weight * sum(lw_derivatives_g)
     end do
 
+#ifdef DR_HOOK
     if (lhook) call dr_hook('radiation_lw_derivatives:modify_lw_derivatives_ica',1,hook_handle)
-
+#endif
   end subroutine modify_lw_derivatives_ica
 
 

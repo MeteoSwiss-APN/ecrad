@@ -93,7 +93,7 @@ module radiation_flux
    contains
      procedure :: allocate   => allocate_flux_type
      procedure :: deallocate => deallocate_flux_type
-     procedure :: calc_surface_spectral
+     procedure :: calc_surface_spectral, calc_surface_spectral_sw, calc_surface_spectral_lw
      procedure :: out_of_physical_bounds
   end type flux_type
 
@@ -334,11 +334,34 @@ contains
     type(config_type), intent(in)    :: config
     integer,           intent(in)    :: istartcol, iendcol
 
+    real(jprb)                       :: hook_handle
+
+    if (lhook) call dr_hook('radiation_flux:calc_surface_spectral',0,hook_handle)
+
+    call calc_surface_spectral_sw(this, config, istartcol, iendcol)
+    call calc_surface_spectral_lw(this, config, istartcol, iendcol)
+
+    if (lhook) call dr_hook('radiation_flux:calc_surface_spectral',1,hook_handle)
+
+  end subroutine calc_surface_spectral
+
+  !---------------------------------------------------------------------
+  ! Calculate surface downwelling fluxes in each band using the
+  ! downwelling surface fluxes at each g point
+  subroutine calc_surface_spectral_sw(this, config, istartcol, iendcol)
+
+    use yomhook,          only : lhook, dr_hook
+    use radiation_config, only : config_type
+
+    class(flux_type),  intent(inout) :: this
+    type(config_type), intent(in)    :: config
+    integer,           intent(in)    :: istartcol, iendcol
+
     integer :: jcol, jband, jalbedoband, nalbedoband
 
     ! Longwave surface downwelling in each band needed to compute
     ! canopy fluxes
-    real(jprb) :: lw_dn_surf_band(config%n_bands_lw,istartcol:iendcol)
+    
 
     real(jprb)                       :: hook_handle
 
@@ -418,6 +441,32 @@ contains
 
     end if ! do_canopy_fluxes_sw
 
+    if (lhook) call dr_hook('radiation_flux:calc_surface_spectral_sw',1,hook_handle)
+
+  end subroutine calc_surface_spectral_sw
+
+  !---------------------------------------------------------------------
+  ! Calculate surface downwelling fluxes in each band using the
+  ! downwelling surface fluxes at each g point
+  subroutine calc_surface_spectral_lw(this, config, istartcol, iendcol)
+
+    use yomhook,          only : lhook, dr_hook
+    use radiation_config, only : config_type
+
+    class(flux_type),  intent(inout) :: this
+    type(config_type), intent(in)    :: config
+    integer,           intent(in)    :: istartcol, iendcol
+
+    integer :: jcol, jband, jalbedoband, nalbedoband
+
+    ! Longwave surface downwelling in each band needed to compute
+    ! canopy fluxes
+    real(jprb) :: lw_dn_surf_band(config%n_bands_lw,istartcol:iendcol)
+
+    real(jprb)                       :: hook_handle
+
+    if (lhook) call dr_hook('radiation_flux:calc_surface_spectral_lw',0,hook_handle)
+
     if (config%do_lw .and. config%do_canopy_fluxes_lw) then
       if (config%use_canopy_full_spectrum_lw) then
         this%lw_dn_surf_canopy(:,istartcol:iendcol) = this%lw_dn_surf_g(:,istartcol:iendcol)
@@ -450,9 +499,9 @@ contains
       end if
     end if
 
-    if (lhook) call dr_hook('radiation_flux:calc_surface_spectral',1,hook_handle)
+    if (lhook) call dr_hook('radiation_flux:calc_surface_spectral_lw',1,hook_handle)
 
-  end subroutine calc_surface_spectral
+  end subroutine calc_surface_spectral_lw
 
 
   !---------------------------------------------------------------------

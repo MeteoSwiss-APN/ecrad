@@ -51,8 +51,8 @@ module radiation_config
   ! independently, except for "Homogeneous", which must be the same
   ! for both
   enum, bind(c) 
-     enumerator ISolverCloudless, ISolverHomogeneous, ISolverMcICA, &
-          &     ISolverSpartacus, ISolverTripleclouds 
+     enumerator :: ISolverCloudless = 0, ISolverHomogeneous = 1, ISolverMcICA = 2, &
+          &     ISolverSpartacus = 3, ISolverTripleclouds  = 4
   end enum
   character(len=*), parameter :: SolverName(0:4) = (/ 'Cloudless   ', &
        &                                              'Homogeneous ', &
@@ -529,6 +529,8 @@ module radiation_config
     ! If the solvers are both "Cloudless" then we don't need to do any
     ! cloud processing
     logical :: do_clouds = .true.
+
+    logical :: run_solvers_in_parallel = .true.
 
    contains
      procedure :: read => read_config_from_namelist
@@ -1284,6 +1286,8 @@ contains
                &   'overhang_factor', this%overhang_factor)
         end if
       end if
+      call print_logical('  Run shortwave and longwave solvers in parallel', &
+           &   'run_solvers_in_parallel', this%run_solvers_in_parallel)
             
     end if
     

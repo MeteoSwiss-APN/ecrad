@@ -99,6 +99,10 @@ module ecrad_driver_config
      ! occurs), 1=warning, 2=info, 3=progress, 4=detailed, 5=debug
      integer :: iverbose
 
+    ! XML Report settings
+    logical :: generate_report
+    character(len=NMaxStringLength) :: report_file_path
+
    contains
      procedure :: read => read_config_from_namelist
 
@@ -176,6 +180,10 @@ contains
     ! Are we going to override the effective size?
     logical :: do_override_eff_size
 
+    ! XML Report settings
+    logical :: generate_report
+    character(len=NMaxStringLength) :: report_file_path
+
     namelist /radiation_driver/ fractional_std, &
          &  overlap_decorr_length, inv_effective_size, sw_albedo, &
          &  high_inv_effective_size, middle_inv_effective_size, &
@@ -191,11 +199,13 @@ contains
          &  do_write_hdf5, h2o_scaling, co2_scaling, o3_scaling, co_scaling, &
          &  ch4_scaling, o2_scaling, cfc11_scaling, cfc12_scaling, &
          &  hcfc22_scaling, no2_scaling, n2o_scaling, ccl4_scaling, &
-         &  vmr_suffix_str, experiment_name
+         &  vmr_suffix_str, experiment_name, &
+         &  generate_report, report_file_path
 
     real(jprb) :: hook_handle
 
     if (lhook) call dr_hook('ecrad_driver_config:read',0,hook_handle)
+    !  write(nulout,'(a)') 'after namelist'
     
     ! Default values
     do_parallel = .true.
@@ -346,6 +356,10 @@ contains
     this%vmr_suffix_str = trim(vmr_suffix_str)
     this%experiment_name= trim(experiment_name)
 
+#ifdef XML_REPORT_SUPPORTED
+    this%generate_report = generate_report
+    this%report_file_path = trim(report_file_path)
+#endif
     if (lhook) call dr_hook('ecrad_driver_config:read',1,hook_handle)
 
   end subroutine read_config_from_namelist

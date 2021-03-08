@@ -25,11 +25,40 @@
 ! 2) Name of a NetCDF file containing one or more atmospheric profiles
 ! 3) Name of output NetCDF file
 
+module ecrad_driver_routines
+use ISO_C_BINDING
+#ifdef XML_REPORT_SUPPORTED
+  use ecrad_driver_report
+#endif
+    implicit none
+    public
+contains
+  subroutine report_fail(report, error_message)
+    integer(C_INTPTR_T),value, intent(in) :: report
+    character(*), intent(in) :: error_message
+#ifdef XML_REPORT_SUPPORTED
+    if (report .NE. 0) then
+       call fail_current_report_step(report, error_message);
+       call save_report(report)
+       call delete_report(report)
+    endif
+    stop 'driver failed'
+#endif
+  end subroutine report_fail
+end module ecrad_driver_routines
+
+#ifdef XML_REPORT_SUPPORTED
+#define FAIL(error_message) call report_fail(report, error_message)
+#else
+#define FAIL(error_message) stop error_message
+#endif
+
 program ecrad_driver
 
   ! --------------------------------------------------------
   ! Section 1: Declarations
   ! --------------------------------------------------------
+  use ecrad_driver_routines
   use parkind1,                 only : jprb, jprd ! Working/double precision
 
   use yomhook,                  only : dr_hook, lhook, initialize_timers, finalize_timers
@@ -54,6 +83,11 @@ program ecrad_driver
   use ecrad_driver_config,      only : driver_config_type
   use ecrad_driver_read_input,  only : read_input
   use easy_netcdf
+
+  use ISO_C_BINDING
+#ifdef XML_REPORT_SUPPORTED
+  use ecrad_driver_report
+#endif
 
   implicit none
 
@@ -118,6 +152,8 @@ program ecrad_driver
   ! Section 2: Configure
   ! --------------------------------------------------------
 
+  integer(C_INTPTR_T) :: report = 0
+
   ! Check program called with correct number of arguments
   if (command_argument_count() < 3) then
     stop 'Usage: ecrad config.nam input_file.nc output_file.nc [output_surface_file.nc]'
@@ -163,11 +199,16 @@ program ecrad_driver
   ! --------------------------------------------------------
   ! Section 3: Read input data file
   ! --------------------------------------------------------
-
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    report = create_report(driver_config%report_file_path)
+    call start_report_step(report, "reading input data")
+  endif
+#endif
   ! Get NetCDF input file name
   call get_command_argument(2, file_name, status=istatus)
   if (istatus /= 0) then
-    stop 'Failed to read name of input NetCDF file as string of length < 512'
+    FAIL('Failed to read name of input NetCDF file as string of length < 512')
   end if
 
   ! Open the file and configure the way it is read
@@ -176,7 +217,7 @@ program ecrad_driver
   ! Get NetCDF output file name
   call get_command_argument(3, file_name, status=istatus)
   if (istatus /= 0) then
-    stop 'Failed to read name of output NetCDF file as string of length < 512'
+    FAIL('Failed to read name of output NetCDF file as string of length < 512')
   end if
 
   ! 2D arrays are assumed to be stored in the file with height varying
@@ -216,7 +257,7 @@ program ecrad_driver
          &  driver_config%istartcol, &
          &  ' to ', driver_config%iendcol, ') is out of the range in the data (1 to ', &
          &  ncol, ')'
-    stop 1
+    FAIL('column range is out of range')
   end if
   
   ! Store inputs
@@ -228,10 +269,19 @@ program ecrad_driver
          &                iverbose=driver_config%iverbose)
   end if
 
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call finish_current_report_step(report, C_TRUE)
+  endif
+#endif
   ! --------------------------------------------------------
   ! Section 4: Call radiation scheme
   ! --------------------------------------------------------
-
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call start_report_step(report, "allocating memory")
+  endif
+#endif
   ! Ensure the units of the gas mixing ratios are what is required
   ! by the gas absorption model
   call set_gas_units(config, gas)
@@ -268,78 +318,64 @@ program ecrad_driver
     write(nulout,'(a)')  'Performing radiative transfer calculations'
   end if
   
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call finish_current_report_step(report, C_TRUE)
+  endif
+#endif
+
+  config%run_solvers_in_parallel = driver_config%do_parallel
+
+  if (driver_config%iverbose >= 2) then
+    write(nulout,'(a,i0)')  'Number of columns per block: ', driver_config%nblocksize
+  end if
+
   ! Option of repeating calculation multiple time for more accurate
   ! profiling
   do jrepeat = 1,driver_config%nrepeat
-    
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call start_report_step(report, "computation")
+  endif
+#endif
+  ! Compute number of blocks to process
+    nblock = (driver_config%iendcol - driver_config%istartcol &
+              &  + driver_config%nblocksize) / driver_config%nblocksize
     if (driver_config%do_parallel) then
       ! Run radiation scheme over blocks of columns in parallel
-      
-      ! Compute number of blocks to process
-      nblock = (driver_config%iendcol - driver_config%istartcol &
-           &  + driver_config%nblocksize) / driver_config%nblocksize
-     
       tstart = omp_get_wtime() 
       !$OMP PARALLEL DO PRIVATE(istartcol, iendcol) SCHEDULE(RUNTIME)
       do jblock = 1, nblock
-        ! Specify the range of columns to process.
-        istartcol = (jblock-1) * driver_config%nblocksize &
-             &    + driver_config%istartcol
-        iendcol = min(istartcol + driver_config%nblocksize - 1, &
-             &        driver_config%iendcol)
-          
-        if (driver_config%iverbose >= 3) then
-          write(nulout,'(a,i0,a,i0,a,i0)')  'Thread ', omp_get_thread_num(), &
-               &  ' processing columns ', istartcol, '-', iendcol
-        end if
-        
-        if (is_complex_surface) then
-          call surface_intermediate%calc_boundary_conditions(driver_config%istartcol, &
-               &  driver_config%iendcol, config, surface, thermodynamics, gas, single_level)
-        end if
-        
-        ! Call the ECRAD radiation scheme
-        call radiation(ncol, nlev, istartcol, iendcol, config, &
-             &  single_level, thermodynamics, gas, cloud, aerosol, flux)
-        
-        if (is_complex_surface) then
-          call surface_intermediate%partition_fluxes(driver_config%istartcol, &
-               &  driver_config%iendcol, config, surface, flux, surface_flux)
-        end if
-        
+        call run_radiation_block(aerosol, cloud, config, driver_config, flux, gas, iendcol, is_complex_surface, istartcol, jblock,&
+                                 &ncol, nlev, single_level, surface, surface_flux, surface_intermediate, thermodynamics)
       end do
       !$OMP END PARALLEL DO
       tstop = omp_get_wtime()
       write(nulout, '(a,g11.5,a)') 'Time elapsed in radiative transfer: ', tstop-tstart, ' seconds'
       
     else
-      ! Run radiation scheme serially
-      if (driver_config%iverbose >= 3) then
-        write(nulout,'(a,i0,a)')  'Processing ', ncol, ' columns'
-      end if
-      
-      if (is_complex_surface) then
-        call surface_intermediate%calc_boundary_conditions(driver_config%istartcol, &
-             &  driver_config%iendcol, config, surface, thermodynamics, gas, single_level)
-      end if
-      
-      ! Call the ECRAD radiation scheme
-      call radiation(ncol, nlev, driver_config%istartcol, driver_config%iendcol, &
-           &  config, single_level, thermodynamics, gas, cloud, aerosol, flux)
-      
-      if (is_complex_surface) then
-        call surface_intermediate%partition_fluxes(driver_config%istartcol, &
-             &  driver_config%iendcol, config, surface, flux, surface_flux)
-      end if
-      
-    end if
-    
+      ! Compute number of blocks to process
+      do jblock = 1, nblock
+        call run_radiation_block(aerosol, cloud, config, driver_config, flux, gas, iendcol, is_complex_surface, istartcol, jblock,&
+                                 &ncol, nlev, single_level, surface, surface_flux, surface_intermediate, thermodynamics)
+      end do
+    endif
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call finish_current_report_step(report, C_TRUE)
+  endif
+#endif
   end do
 
   ! --------------------------------------------------------
   ! Section 5: Check and save output
   ! --------------------------------------------------------
 
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call start_report_step(report, "writing output data")
+  endif
+#endif
   is_out_of_bounds = flux%out_of_physical_bounds(driver_config%istartcol, driver_config%iendcol)
 
   ! Store the fluxes in the output file
@@ -357,9 +393,70 @@ program ecrad_driver
     end if
   end if
 
+#ifdef XML_REPORT_SUPPORTED
+  if (driver_config%generate_report) then
+    call finish_current_report_step(report, C_TRUE)
+  endif
+#endif
+
   if (driver_config%iverbose >= 2) then
     write(nulout,'(a)') '------------------------------------------------------------------------------------'
   end if
+#ifdef XML_REPORT_SUPPORTED
+  if (report .NE. 0) then
+     call save_report(report)
+     call delete_report(report)
+  endif
+#endif
+contains
+
+    subroutine run_radiation_block(aerosol, cloud, config, driver_config, flux, gas, iendcol, is_complex_surface, istartcol,&
+     &jblock, ncol, nlev, single_level, surface, surface_flux, surface_intermediate, thermodynamics)
+        implicit none
+        type(aerosol_type) :: aerosol
+        type(cloud_type) :: cloud
+        type(config_type) :: config
+        type(driver_config_type) :: driver_config
+        type(flux_type) :: flux
+        type(gas_type) :: gas
+        integer :: iendcol
+        logical :: is_complex_surface
+        integer :: istartcol
+        integer :: jblock
+        integer :: ncol
+        integer :: nlev
+        type(single_level_type) :: single_level
+        type(surface_type) :: surface
+        type(surface_flux_type) :: surface_flux
+        type(surface_intermediate_type) :: surface_intermediate
+        type(thermodynamics_type) :: thermodynamics
+        integer, external :: omp_get_thread_num
+
+        ! Specify the range of columns to process.
+        istartcol = (jblock-1) * driver_config%nblocksize &
+             + driver_config%istartcol
+        iendcol = min(istartcol + driver_config%nblocksize - 1, &
+             driver_config%iendcol)
+
+        if (driver_config%iverbose >= 3) then
+          write(nulout,'(a,i0,a,i0,a,i0)')  'Thread ', omp_get_thread_num(), &
+               ' processing columns ', istartcol, '-', iendcol
+        end if
+
+        if (is_complex_surface) then
+          call surface_intermediate%calc_boundary_conditions(driver_config%istartcol, &
+               driver_config%iendcol, config, surface, thermodynamics, gas, single_level)
+        end if
+
+        ! Call the ECRAD radiation scheme
+        call radiation(ncol, nlev, istartcol, iendcol, config, &
+             single_level, thermodynamics, gas, cloud, aerosol, flux)
+
+        if (is_complex_surface) then
+          call surface_intermediate%partition_fluxes(driver_config%istartcol, &
+               driver_config%iendcol, config, surface, flux, surface_flux)
+        end if
+    end subroutine
 
   if (lhook) call dr_hook('ecrad_driver:ecrad_driver',1,hook_handle)
   if (lhook) call finalize_timers()
