@@ -189,7 +189,7 @@ program ecrad_driver
   call read_input(file, config, driver_config, ncol, nlev, &
        &          is_complex_surface, surface, single_level, thermodynamics, &
        &          gas, cloud, aerosol)
-
+!THIS IS A CHANGE
   if (is_complex_surface) then
     config%do_canopy_fluxes_sw = .true.
     config%do_canopy_fluxes_lw = .true.
